@@ -1,0 +1,77 @@
+{
+  "input_parameters": {
+    "H": {
+      "description": "Высота",
+      "type": "input",
+      "default": 150
+    },
+    "B1": {
+      "description": "Ширина",
+      "type": "input", 
+      "default": 145
+    },
+    "L1": {
+      "description": "Длина",
+      "type": "input",
+      "default": 1400
+    }
+  },
+  
+  "constant_parameters": {
+    "A2": {
+      "description": "Константа для расчета A1",
+      "value": 18.5,
+      "type": "constant"
+    },
+    "B2": {
+      "description": "Константа для ширины",
+      "value": 18,
+      "type": "constant"
+    }
+  },
+  
+  "calculated_parameters": {
+    "A1": {
+      "description": "Расчетная высота (H - A2)",
+      "formula": "H - A2",
+      "depends_on": ["H", "A2"]
+    },
+    "A": {
+      "description": "Рабочая высота (равна A1)",
+      "formula": "A1",
+      "depends_on": ["A1"]
+    },
+    "B": {
+      "description": "Рабочая ширина",
+      "formula": "B1",
+      "depends_on": ["B1"]
+    },
+    "L": {
+      "description": "Рабочая длина",
+      "formula": "L1",
+      "depends_on": ["L1"]
+    }
+  },
+  
+  "part_variables": {
+    "004 - Корпус короба прямой": ["A1", "A", "B1", "B", "L1", "L"],
+    "003 - Крышка декоративная": ["B"],
+    "005 - Распорка басеейна": ["A", "B"],
+    "006 - Стенка торцевая": ["A", "B"],
+    "007 - Стенка": ["B"],
+    "009 - Накладка": ["B"]
+  },
+  
+  "assembly_variables": ["H", "B1", "L1", "A1", "A2", "A", "B", "L"],
+  
+  "notes": {
+    "calculation_order": [
+      "1. Константы (A2, B2)",
+      "2. Входные (H, B1, L1)",
+      "3. Вычисляемые (A1 = H - A2)",
+      "4. Производные (A = A1, B = B1, L = L1)"
+    ],
+    "update_strategy": "Обновлять в порядке зависимостей для корректного расчета"
+  }
+}
+

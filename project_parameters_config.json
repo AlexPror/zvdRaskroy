@@ -1,0 +1,204 @@
+{
+  "project_info": {
+    "name": "Конвектор с естественной конвекцией",
+    "base_project": "ZVD.LITE.80.230.2000",
+    "version": "1.0"
+  },
+  
+  "input_parameters": {
+    "H": {
+      "description": "Высота конвектора",
+      "unit": "мм",
+      "default": 150,
+      "min": 80,
+      "max": 300,
+      "type": "input"
+    },
+    "B1": {
+      "description": "Ширина конвектора",
+      "unit": "мм",
+      "default": 145,
+      "min": 100,
+      "max": 400,
+      "type": "input"
+    },
+    "L1": {
+      "description": "Длина конвектора",
+      "unit": "мм",
+      "default": 1400,
+      "min": 400,
+      "max": 3000,
+      "type": "input"
+    }
+  },
+  
+  "editable_coefficients": {
+    "A2": {
+      "description": "Коэффициент высоты (зазор верхний)",
+      "unit": "мм",
+      "value": 18.5,
+      "formula": "фиксированное",
+      "used_in": ["A1 = H - A2"]
+    },
+    "B2": {
+      "description": "Коэффициент ширины (толщина стенки)",
+      "unit": "мм",
+      "value": 18,
+      "formula": "фиксированное",
+      "used_in": ["B3", "B4"]
+    },
+    "коэфф_A3": {
+      "name": "20",
+      "description": "Вычет для A3 (в формуле A1-20)",
+      "value": 20,
+      "unit": "мм",
+      "used_in": ["A3 = A1 - 20"]
+    },
+    "коэфф_A4": {
+      "name": "5",
+      "description": "Вычет для A4 (в формуле A1-5)",
+      "value": 5,
+      "unit": "мм",
+      "used_in": ["A4 = A1 - 5"]
+    },
+    "коэфф_A5": {
+      "name": "1.5",
+      "description": "Вычет для A5 (в формуле A2-1.5)",
+      "value": 1.5,
+      "unit": "мм",
+      "used_in": ["A5 = A2 - 1.5"]
+    },
+    "коэфф_B3_1": {
+      "name": "6.9",
+      "description": "Коррекция для B3 (в формуле B1-B2*2-6.9)",
+      "value": 6.9,
+      "unit": "мм",
+      "used_in": ["B3 = B1 - B2*2 - 6.9"]
+    },
+    "коэфф_B4_1": {
+      "name": "2.5",
+      "description": "Коррекция для B4 (в формуле B1-B2*2-2.5)",
+      "value": 2.5,
+      "unit": "мм",
+      "used_in": ["B4 = B1 - B2*2 - 2.5"]
+    },
+    "коэфф_B5": {
+      "name": "4",
+      "description": "Вычет для B5 (в формуле B1-4)",
+      "value": 4,
+      "unit": "мм",
+      "used_in": ["B5 = B1 - 4"]
+    },
+    "коэфф_B6": {
+      "name": "60",
+      "description": "Вычет для B6 (в формуле B1-60)",
+      "value": 60,
+      "unit": "мм",
+      "used_in": ["B6 = B1 - 60"]
+    }
+  },
+  
+  "conditional_variables": {
+    "Количество_распорок": {
+      "description": "Количество распорок в зависимости от длины",
+      "type": "integer",
+      "rules": [
+        {"condition": "L1 >= 500 and L1 < 1500", "value": 2},
+        {"condition": "L1 >= 1500 and L1 < 2000", "value": 3},
+        {"condition": "L1 >= 2000 and L1 <= 2400", "value": 4},
+        {"condition": "L1 > 2400", "value": 5}
+      ],
+      "kompas_expression": "if(L1<1500; 2; if(L1<2000; 3; if(L1<=2400; 4; 5)))",
+      "used_in": "Массив распорок"
+    }
+  },
+  
+  "calculated_variables": {
+    "A1": {
+      "description": "Рабочая высота (H минус зазор)",
+      "formula": "H - A2",
+      "depends_on": ["H", "A2"]
+    },
+    "A": {
+      "description": "Рабочая высота (копия A1)",
+      "formula": "A1",
+      "depends_on": ["A1"]
+    },
+    "A3": {
+      "description": "Высота элемента 3",
+      "formula": "A1 - 20",
+      "depends_on": ["A1"]
+    },
+    "A4": {
+      "description": "Высота элемента 4",
+      "formula": "A1 - 5",
+      "depends_on": ["A1"]
+    },
+    "A5": {
+      "description": "Высота элемента 5",
+      "formula": "A2 - 1.5",
+      "depends_on": ["A2"]
+    },
+    "B": {
+      "description": "Рабочая ширина (копия B1)",
+      "formula": "B1",
+      "depends_on": ["B1"]
+    },
+    "B3": {
+      "description": "Ширина с учетом двойной толщины стенок",
+      "formula": "B1 - B2*2 - 6.9",
+      "depends_on": ["B1", "B2"]
+    },
+    "B4": {
+      "description": "Ширина элемента 4",
+      "formula": "B1 - B2*2 - 2.5",
+      "depends_on": ["B1", "B2"]
+    },
+    "B5": {
+      "description": "Ширина элемента 5",
+      "formula": "B1 - 4",
+      "depends_on": ["B1"]
+    },
+    "B6": {
+      "description": "Ширина элемента 6",
+      "formula": "B1 - 60",
+      "depends_on": ["B1"]
+    },
+    "L": {
+      "description": "Рабочая длина (копия L1)",
+      "formula": "L1",
+      "depends_on": ["L1"]
+    }
+  },
+  
+  "calculation_order": [
+    "Шаг 1: Входные (H, B1, L1)",
+    "Шаг 2: Константы (A2, B2)",
+    "Шаг 3: Базовые (A1 = H-A2, A = A1, B = B1, L = L1)",
+    "Шаг 4: Производные (A3, A4, A5, B3, B4, B5, B6)"
+  ],
+  
+  "part_variables_mapping": {
+    "004 - Корпус короба прямой": {
+      "variables": ["A1", "A", "B1", "B", "L1", "L"],
+      "description": "Основной корпус - требует все основные параметры"
+    },
+    "003 - Крышка декоративная": {
+      "variables": ["B"],
+      "description": "Крышка - зависит только от ширины"
+    },
+    "005 - Распорка басеейна": {
+      "variables": ["A", "B"],
+      "description": "Распорка - высота и ширина"
+    },
+    "006 - Стенка торцевая": {
+      "variables": ["A", "B"],
+      "description": "Торцевая стенка - высота и ширина"
+    },
+    "007 - Стенка": {
+      "variables": ["B"],
+      "description": "Боковая стенка - только ширина"
+    }
+  }
+}
+
