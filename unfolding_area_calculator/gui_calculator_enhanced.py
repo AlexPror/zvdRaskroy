@@ -22,6 +22,7 @@ from components.smart_nesting_optimizer import SmartNestingOptimizer
 from components.dxf_contour_renderer import DXFContourRenderer
 from components.optimality_analyzer import OptimalityAnalyzer
 from components.project_dimension_extractor import ProjectDimensionExtractor
+from components.ai_optimizer import AIRecommendationEngine  # v3.0
 
 
 class EnhancedUnfoldingAreaGUI:
@@ -29,7 +30,7 @@ class EnhancedUnfoldingAreaGUI:
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("ZVD - Расчет площадей разверток v2.0 (с оптимизацией раскроя)")
+        self.root.title("ZVD - Расчет площадей разверток v3.0 (с AI-рекомендациями)")
         
         # Адаптивный размер окна
         screen_width = self.root.winfo_screenwidth()
@@ -60,6 +61,7 @@ class EnhancedUnfoldingAreaGUI:
         self.smart_optimizer = SmartNestingOptimizer()  # НОВЫЙ умный оптимизатор
         self.contour_renderer = DXFContourRenderer()  # Рендерер реальных контуров
         self.optimality_analyzer = OptimalityAnalyzer()  # НОВЫЙ анализатор оптимальности
+        self.ai_engine = AIRecommendationEngine()  # v3.0: AI-рекомендации
         self.dimension_extractor = ProjectDimensionExtractor()  # Экстрактор габаритов
         self.last_nesting_result = None  # Последний результат раскроя
         self.current_dimensions = None  # Текущие габариты проекта
@@ -331,6 +333,51 @@ class EnhancedUnfoldingAreaGUI:
                               font=('Arial', 8),
                               foreground='#1976D2')
         hint_label.pack(pady=(3, 0))
+        
+        # === AI-РЕКОМЕНДАЦИИ v3.0 (НОВОЕ!) ===
+        ai_frame = ttk.LabelFrame(main_frame, text="🧠 AI-Рекомендации по оптимизации (v3.0)", padding="10")
+        ai_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        # Контейнер
+        ai_container = ttk.Frame(ai_frame)
+        ai_container.pack(fill=tk.X)
+        
+        # Текстовое поле для рекомендаций
+        self.ai_recommendations_text = tk.Text(ai_container,
+                                              height=6,
+                                              width=80,
+                                              font=('Arial', 9),
+                                              bg='#E8F5E9',
+                                              fg='#1B5E20',
+                                              relief=tk.GROOVE,
+                                              wrap=tk.WORD,
+                                              state=tk.DISABLED)
+        self.ai_recommendations_text.pack(pady=(0, 10))
+        
+        # Изначальное сообщение
+        self.ai_recommendations_text.config(state=tk.NORMAL)
+        self.ai_recommendations_text.insert('1.0', 
+            "💡 AI-рекомендации появятся после запуска раскроя\n\n"
+            "Программа проанализирует результат и подскажет:\n"
+            "  • Какие детали добавить для повышения утилизации\n"
+            "  • Из каких проектов их взять\n"
+            "  • Прогноз утилизации после добавления")
+        self.ai_recommendations_text.config(state=tk.DISABLED)
+        
+        # Кнопка получения рекомендаций
+        self.ai_get_recommendations_btn = ttk.Button(ai_container,
+                                                     text="🧠 Получить AI-рекомендации",
+                                                     command=self.get_ai_recommendations,
+                                                     state=tk.DISABLED,
+                                                     width=30)
+        self.ai_get_recommendations_btn.pack(pady=(0, 5))
+        
+        # Инфо
+        ai_info = ttk.Label(ai_container,
+                           text="✨ v3.0: Умный подбор деталей для максимальной утилизации листа",
+                           font=('Arial', 8),
+                           foreground='#388E3C')
+        ai_info.pack()
     
     def browse_folder(self):
         """Выбор папки"""
@@ -1068,6 +1115,11 @@ class EnhancedUnfoldingAreaGUI:
             else:
                 print(f"[DEBUG] Пользователь отказался от создания отчетов")
                 messagebox.showinfo("ОК", "Раскладка готова!\nОтчеты не созданы.")
+            
+            # v3.0: Активировать кнопку AI-рекомендаций после раскроя
+            if hasattr(self, 'ai_get_recommendations_btn'):
+                self.ai_get_recommendations_btn.config(state=tk.NORMAL)
+                print(f"[DEBUG v3.0] AI-рекомендации активированы")
             
         except Exception as e:
             messagebox.showerror("Ошибка", f"Ошибка оптимизации:\n{e}")
@@ -2697,6 +2749,92 @@ class EnhancedUnfoldingAreaGUI:
         
         widget.bind('<Enter>', show_tooltip)
         widget.bind('<Leave>', hide_tooltip)
+    
+    def get_ai_recommendations(self):
+        """
+        v3.0: Получить AI-рекомендации по оптимизации
+        """
+        if not self.last_nesting_result:
+            messagebox.showwarning("Нет данных", 
+                                  "Сначала запустите раскрой!")
+            return
+        
+        if not self.current_dimensions:
+            messagebox.showwarning("Нет габаритов", 
+                                  "Не удалось определить габариты проекта (H, W, L)")
+            return
+        
+        try:
+            # Получить рекомендации от AI
+            recommendations = self.ai_engine.get_recommendations(
+                files_data=self.files_data,
+                nesting_result=self.last_nesting_result,
+                project_dimensions=self.current_dimensions
+            )
+            
+            # Отобразить в текстовом поле
+            self.ai_recommendations_text.config(state=tk.NORMAL)
+            self.ai_recommendations_text.delete('1.0', tk.END)
+            
+            # Заголовок
+            text = f"🧠 AI-АНАЛИЗ РАСКРОЯ\n"
+            text += "=" * 70 + "\n\n"
+            
+            # Текущий статус
+            current_util = recommendations['current_utilization']
+            status = recommendations['status']
+            text += f"Текущая утилизация: {current_util:.1f}% ({status.upper()})\n\n"
+            
+            # Предупреждения о комплектности
+            if recommendations['completeness']['has_issues']:
+                text += "⚠️ ПРОВЕРКА КОМПЛЕКТНОСТИ:\n"
+                for warning in recommendations['completeness']['warnings']:
+                    part = warning['part_type'].replace('_', ' ').title()
+                    text += f"  • {part}: есть {warning['actual']} шт, "
+                    text += f"нужно {warning['expected']} шт (не хватает {warning['missing']})\n"
+                text += "\n"
+            
+            # Рекомендации для ХОРОШО
+            if recommendations['good_level']['has_recommendations']:
+                text += f"💡 ДЛЯ ДОСТИЖЕНИЯ {recommendations['good_level']['target']}:\n"
+                for rec in recommendations['good_level']['recommendations'][:3]:  # первые 3
+                    part = rec['part_type'].replace('_', ' ').title()
+                    w, h = rec['size']
+                    text += f"  • {part} ({w:.0f}×{h:.0f} мм) - {rec['quantity']} шт\n"
+                    text += f"    Откуда: {rec['from_projects']}\n"
+                
+                if recommendations['good_level']['recommendations']:
+                    pred = recommendations['good_level']['recommendations'][0]['predicted_utilization']
+                    text += f"\n  Прогноз утилизации: {pred:.1f}%\n"
+                text += "\n"
+            
+            # Рекомендации для ОТЛИЧНО
+            if recommendations['excellent_level']['has_recommendations']:
+                text += f"✨ ДЛЯ ДОСТИЖЕНИЯ {recommendations['excellent_level']['target']}:\n"
+                total_details = len(recommendations['excellent_level']['recommendations'])
+                text += f"  Добавить {total_details} типов деталей:\n"
+                
+                for rec in recommendations['excellent_level']['recommendations'][:5]:  # первые 5
+                    part = rec['part_type'].replace('_', ' ').title()
+                    w, h = rec['size']
+                    text += f"  • {part} ({w:.0f}×{h:.0f} мм) - {rec['quantity']} шт\n"
+                
+                if recommendations['excellent_level']['recommendations']:
+                    pred = recommendations['excellent_level']['recommendations'][0]['predicted_utilization']
+                    text += f"\n  Прогноз утилизации: {pred:.1f}%\n"
+                text += "\n"
+            
+            # Итоги
+            text += "─" * 70 + "\n"
+            text += "💡 СОВЕТ: Детали можно найти в проектах с похожими H и W\n"
+            text += "📁 Используйте функцию 'Загрузить файлы' → 'Добавить из другой папки'"
+            
+            self.ai_recommendations_text.insert('1.0', text)
+            self.ai_recommendations_text.config(state=tk.DISABLED)
+            
+        except Exception as e:
+            messagebox.showerror("Ошибка AI-анализа", 
+                               f"Не удалось получить рекомендации:\n{e}")
     
     def run(self):
         """Запуск приложения"""
