@@ -7,6 +7,7 @@
 """
 
 import sys
+import logging
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
@@ -55,6 +56,9 @@ class EnhancedUnfoldingAreaGUI:
         
         self.folder_path = tk.StringVar()
         self.order_number = tk.StringVar()
+        
+        # Логгер для вывода отладочной информации
+        self.logger = logging.getLogger(__name__)
         
         self.files_data = []
         self.calculator = UnfoldingAreaCalculator()
