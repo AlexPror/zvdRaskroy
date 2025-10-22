@@ -165,13 +165,32 @@ class ProjectsDatabase:
             doc = ezdxf.readfile(str(dxf_path))
             modelspace = doc.modelspace()
             
-            # Получить bounding box
-            bbox = ezdxf.bbox.extents(modelspace, fast=True)
-            if not bbox or not bbox.has_data:
+            # Получить bounding box (используем разные методы для совместимости)
+            try:
+                # Новый API (ezdxf >= 1.0)
+                from ezdxf import bbox
+                extents = bbox.extents(modelspace, fast=True)
+            except:
+                # Старый API или fallback
+                try:
+                    extents = modelspace.extents()
+                except:
+                    # Если не работает, пропускаем файл
+                    return None
+            
+            if not extents or (hasattr(extents, 'has_data') and not extents.has_data):
                 return None
             
-            width = abs(bbox.extmax.x - bbox.extmin.x)
-            height = abs(bbox.extmax.y - bbox.extmin.y)
+            # Извлекаем координаты в зависимости от типа объекта
+            if hasattr(extents, 'extmax'):
+                # Объект BoundingBox
+                width = abs(extents.extmax.x - extents.extmin.x)
+                height = abs(extents.extmax.y - extents.extmin.y)
+            else:
+                # Кортеж координат
+                min_point, max_point = extents
+                width = abs(max_point[0] - min_point[0])
+                height = abs(max_point[1] - min_point[1])
             
             if width == 0 or height == 0:
                 return None
@@ -188,6 +207,7 @@ class ProjectsDatabase:
             }
             
         except Exception as e:
+            # Тихо пропускаем файлы с ошибками
             return None
     
     def _extract_quantity(self, filename: str) -> int:
