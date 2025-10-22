@@ -6,6 +6,7 @@ Projects Database для v3.0
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 import json
+import re
 from datetime import datetime
 import ezdxf
 

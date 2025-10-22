@@ -23,6 +23,7 @@ from components.dxf_contour_renderer import DXFContourRenderer
 from components.optimality_analyzer import OptimalityAnalyzer
 from components.project_dimension_extractor import ProjectDimensionExtractor
 from components.ai_optimizer import AIRecommendationEngine  # v3.0
+from components.projects_database import ProjectsDatabase  # v3.0
 
 
 class EnhancedUnfoldingAreaGUI:
@@ -63,11 +64,27 @@ class EnhancedUnfoldingAreaGUI:
         self.optimality_analyzer = OptimalityAnalyzer()  # НОВЫЙ анализатор оптимальности
         self.ai_engine = AIRecommendationEngine()  # v3.0: AI-рекомендации
         self.dimension_extractor = ProjectDimensionExtractor()  # Экстрактор габаритов
+        self.projects_db = ProjectsDatabase()  # v3.0: База данных проектов
         self.last_nesting_result = None  # Последний результат раскроя
         self.current_dimensions = None  # Текущие габариты проекта
         self.project_info = None  # Информация о проекте
         
+        # Попытка загрузить кэш базы данных
+        self.db_loaded = False
+        if self.projects_db.load_cache():
+            stats = self.projects_db.get_statistics()
+            self.logger.info(f"✓ База данных загружена: {stats['total_projects']} проектов")
+            self.db_loaded = True
+            self.db_stats = stats
+        
         self.create_widgets()
+        
+        # Обновляем статус БД после создания виджетов
+        if self.db_loaded and hasattr(self, 'db_status_label'):
+            self.db_status_label.config(
+                text=f"База данных: {self.db_stats['total_projects']} проектов",
+                foreground='green'
+            )
     
     def setup_styles(self):
         """Настройка стилей интерфейса"""
@@ -272,6 +289,52 @@ class EnhancedUnfoldingAreaGUI:
                                        anchor='center')
         self.nesting_label.pack(pady=(5,0))
         
+        # === НАСТРОЙКИ РАСКРОЯ (v3.0) ===
+        nesting_settings_frame = ttk.LabelFrame(main_frame, text="⚙️ Настройки раскроя (rectpack)", padding="10")
+        nesting_settings_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        settings_container = ttk.Frame(nesting_settings_frame)
+        settings_container.pack(anchor='center')
+        
+        # Строка 1: Алгоритм и поворот
+        settings_row1 = ttk.Frame(settings_container)
+        settings_row1.pack(pady=2)
+        
+        ttk.Label(settings_row1, text="Алгоритм:", font=('Arial', 9)).pack(side=tk.LEFT, padx=(0,5))
+        
+        self.nesting_algorithm = tk.StringVar(value='BFF')
+        algorithm_combo = ttk.Combobox(settings_row1, textvariable=self.nesting_algorithm, 
+                                      values=['BFF', 'BNF'], width=10, state='readonly')
+        algorithm_combo.pack(side=tk.LEFT, padx=(0,15))
+        
+        # Подсказка для алгоритма
+        algo_hint = ttk.Label(settings_row1, text="ℹ️", font=('Arial', 10), foreground='#1976D2', cursor='hand2')
+        algo_hint.pack(side=tk.LEFT, padx=(0,10))
+        
+        def show_algo_help(event):
+            messagebox.showinfo("Выбор алгоритма", 
+                              "🔹 BFF (Best Fit First) - РЕКОМЕНДУЕТСЯ\n" +
+                              "   Лучшее качество раскроя\n" +
+                              "   Время: средняя скорость\n\n" +
+                              "🔹 BNF (Best Fit)\n" +
+                              "   Хорошее качество\n" +
+                              "   Время: быстро\n\n" +
+                              "💡 Для лучшего результата используйте BFF")
+        
+        algo_hint.bind('<Button-1>', show_algo_help)
+        
+        self.allow_rotation_var = tk.BooleanVar(value=True)
+        rotation_check = ttk.Checkbutton(settings_row1, text="Разрешить поворот деталей (90°)", 
+                                        variable=self.allow_rotation_var)
+        rotation_check.pack(side=tk.LEFT, padx=(0,10))
+        
+        # Строка 2: Информация
+        settings_row2 = ttk.Frame(settings_container)
+        settings_row2.pack(pady=2)
+        
+        info_text = "💡 Используется библиотека rectpack для оптимального раскроя (+10-20% эффективности)"
+        ttk.Label(settings_row2, text=info_text, font=('Arial', 8), foreground='#1976D2').pack()
+        
         # === ЗОНА ОПТИМАЛЬНОСТИ (НОВОЕ!) ===
         optimality_frame = ttk.LabelFrame(main_frame, text="🎯 Оптимальность габаритов", padding="10")
         optimality_frame.pack(fill=tk.X, pady=(0, 5))
@@ -364,20 +427,36 @@ class EnhancedUnfoldingAreaGUI:
             "  • Прогноз утилизации после добавления")
         self.ai_recommendations_text.config(state=tk.DISABLED)
         
-        # Кнопка получения рекомендаций
-        self.ai_get_recommendations_btn = ttk.Button(ai_container,
+        # Кнопки управления
+        ai_buttons_row = ttk.Frame(ai_container)
+        ai_buttons_row.pack(pady=(0, 5))
+        
+        self.ai_get_recommendations_btn = ttk.Button(ai_buttons_row,
                                                      text="🧠 Получить AI-рекомендации",
                                                      command=self.get_ai_recommendations,
                                                      state=tk.DISABLED,
-                                                     width=30)
-        self.ai_get_recommendations_btn.pack(pady=(0, 5))
+                                                     width=28)
+        self.ai_get_recommendations_btn.pack(side=tk.LEFT, padx=3)
+        
+        self.scan_projects_btn = ttk.Button(ai_buttons_row,
+                                           text="📁 Сканировать проекты",
+                                           command=self.scan_projects_database,
+                                           width=25)
+        self.scan_projects_btn.pack(side=tk.LEFT, padx=3)
+        
+        # Статус базы данных
+        self.db_status_label = ttk.Label(ai_container,
+                                        text="База данных: не загружена",
+                                        font=('Arial', 8),
+                                        foreground='#666')
+        self.db_status_label.pack(pady=(5,0))
         
         # Инфо
         ai_info = ttk.Label(ai_container,
                            text="✨ v3.0: Умный подбор деталей для максимальной утилизации листа",
                            font=('Arial', 8),
                            foreground='#388E3C')
-        ai_info.pack()
+        ai_info.pack(pady=(5,0))
     
     def browse_folder(self):
         """Выбор папки"""
@@ -1032,9 +1111,15 @@ class EnhancedUnfoldingAreaGUI:
                 print(f"    filepath: {fd.get('filepath', 'НЕТ ПУТИ!')}")
             
             # УМНАЯ оптимизация с комбинированием больших и маленьких деталей
+            # Используем настройки из GUI
+            allow_rotation = self.allow_rotation_var.get() if hasattr(self, 'allow_rotation_var') else True
+            
+            self.logger.info(f"\n🔧 Настройки раскроя:")
+            self.logger.info(f"   Поворот: {'Да' if allow_rotation else 'Нет'}")
+            
             result = self.smart_optimizer.optimize_smart(
                 self.files_data,  # Передаем исходные данные с количеством
-                allow_rotation=True
+                allow_rotation=allow_rotation
             )
             
             print(f"[DEBUG] Результат оптимизации: {result['sheets_needed']} листов")
@@ -1152,8 +1237,17 @@ class EnhancedUnfoldingAreaGUI:
                         'quantity': file_data['quantity']
                     })
             
-            # Оптимизация
-            result = self.optimizer.optimize_layout(parts_data, allow_rotation=True, algorithm='BFF')
+            # Оптимизация с настройками из GUI
+            algorithm = self.nesting_algorithm.get() if hasattr(self, 'nesting_algorithm') else 'BFF'
+            allow_rotation = self.allow_rotation_var.get() if hasattr(self, 'allow_rotation_var') else True
+            
+            self.logger.info(f"\n🔧 Настройки раскроя:")
+            self.logger.info(f"   Алгоритм: {algorithm}")
+            self.logger.info(f"   Поворот: {'Да' if allow_rotation else 'Нет'}")
+            
+            result = self.optimizer.optimize_layout(parts_data, 
+                                                   allow_rotation=allow_rotation, 
+                                                   algorithm=algorithm)
             
             if not result['success']:
                 messagebox.showerror("Ошибка", f"Оптимизация не удалась:\n{result.get('error', 'Неизвестная ошибка')}")
@@ -2835,6 +2929,106 @@ class EnhancedUnfoldingAreaGUI:
         except Exception as e:
             messagebox.showerror("Ошибка AI-анализа", 
                                f"Не удалось получить рекомендации:\n{e}")
+    
+    def scan_projects_database(self):
+        """
+        v3.0: Сканирование всех проектов для базы данных
+        """
+        # Выбор папки с проектами
+        base_folder = filedialog.askdirectory(
+            title="Выберите корневую папку с проектами",
+            initialdir=str(Path.home())
+        )
+        
+        if not base_folder:
+            return
+        
+        # Создаем окно прогресса
+        progress_window = tk.Toplevel(self.root)
+        progress_window.title("Сканирование проектов")
+        progress_window.geometry("500x200")
+        progress_window.transient(self.root)
+        progress_window.grab_set()
+        
+        # Центрируем окно
+        progress_window.update_idletasks()
+        x = (progress_window.winfo_screenwidth() // 2) - (500 // 2)
+        y = (progress_window.winfo_screenheight() // 2) - (200 // 2)
+        progress_window.geometry(f"+{x}+{y}")
+        
+        # Контент
+        frame = ttk.Frame(progress_window, padding="20")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="🔍 Сканирование проектов...", 
+                 font=('Arial', 12, 'bold')).pack(pady=(0,10))
+        
+        status_label = ttk.Label(frame, text="Инициализация...", 
+                                font=('Arial', 10))
+        status_label.pack(pady=(0,10))
+        
+        progress_bar = ttk.Progressbar(frame, mode='indeterminate', length=400)
+        progress_bar.pack(pady=(0,10))
+        progress_bar.start(10)
+        
+        stats_text = tk.Text(frame, height=4, width=60, font=('Arial', 9))
+        stats_text.pack()
+        
+        # Обновляем GUI
+        progress_window.update()
+        
+        try:
+            # Запускаем сканирование
+            status_label.config(text=f"Сканирование папки: {Path(base_folder).name}")
+            progress_window.update()
+            
+            projects_found = self.projects_db.scan_all_projects(base_folder)
+            
+            progress_bar.stop()
+            
+            if projects_found > 0:
+                stats = self.projects_db.get_statistics()
+                
+                stats_text.insert('1.0', 
+                    f"✓ Найдено проектов: {stats['total_projects']}\n"
+                    f"✓ Деталей в базе: {stats.get('total_parts', 0)}\n"
+                    f"✓ Групп в индексе: {stats.get('indexed_groups', 0)}\n"
+                    f"✓ База данных сохранена в кэш"
+                )
+                stats_text.config(state=tk.DISABLED)
+                
+                # Обновляем статус в главном окне
+                if hasattr(self, 'db_status_label'):
+                    self.db_status_label.config(
+                        text=f"База данных: {stats['total_projects']} проектов",
+                        foreground='green'
+                    )
+                
+                status_label.config(text="✅ Сканирование завершено!")
+                
+                # Кнопка закрытия
+                ttk.Button(frame, text="Закрыть", 
+                          command=progress_window.destroy,
+                          width=20).pack(pady=(10,0))
+                
+            else:
+                stats_text.insert('1.0', 
+                    "⚠️ Проекты не найдены\n\n"
+                    "Убедитесь что выбрана правильная папка\n"
+                    "с проектами в формате ZVD.LITE.H.W.L"
+                )
+                status_label.config(text="Проекты не найдены")
+                
+                ttk.Button(frame, text="Закрыть", 
+                          command=progress_window.destroy,
+                          width=20).pack(pady=(10,0))
+                
+        except Exception as e:
+            progress_bar.stop()
+            messagebox.showerror("Ошибка", 
+                               f"Ошибка сканирования:\n{e}",
+                               parent=progress_window)
+            progress_window.destroy()
     
     def run(self):
         """Запуск приложения"""
