@@ -913,12 +913,17 @@ class EnhancedUnfoldingAreaGUI:
         try:
             # Используем новый экстрактор для анализа структуры проекта
             dxf_folder = self.folder_path.get()
+            print(f"[DEBUG] Анализ габаритов для папки: {dxf_folder}")
             self.project_info = self.dimension_extractor.analyze_project_structure(dxf_folder)
+            print(f"[DEBUG] project_info is_valid: {self.project_info.get('is_valid', False)}")
             
             if not self.project_info['is_valid']:
                 # Габариты не распознаны - работаем без анализа оптимальности
+                print(f"[DEBUG] Габариты не распознаны из названия папки")
+                print(f"[DEBUG] Устанавливаем current_dimensions в None")
                 self._show_no_dimensions_info()
                 self.current_dimensions = None
+                print(f"[WARNING] AI-рекомендации будут недоступны (нет габаритов H,W,L)")
                 return
             
             # Извлекаем габариты
@@ -928,6 +933,8 @@ class EnhancedUnfoldingAreaGUI:
             L = dims['L']
             
             self.current_dimensions = dims
+            print(f"[DEBUG] Габариты установлены: H={H}, W={W}, L={L}")
+            print(f"[OK] AI-рекомендации будут доступны")
             
             # Количество конвекторов
             conveyors_count = self.project_info['conveyors_count']
@@ -2863,12 +2870,19 @@ class EnhancedUnfoldingAreaGUI:
             return
         
         try:
+            print(f"[DEBUG AI] Запуск AI-рекомендаций...")
+            print(f"[DEBUG AI] files_data: {len(self.files_data)} файлов")
+            print(f"[DEBUG AI] current_dimensions: {self.current_dimensions}")
+            print(f"[DEBUG AI] nesting_result sheets: {self.last_nesting_result.get('sheets_needed', 'N/A')}")
+            
             # Получить рекомендации от AI
             recommendations = self.ai_engine.get_recommendations(
                 files_data=self.files_data,
                 nesting_result=self.last_nesting_result,
                 project_dimensions=self.current_dimensions
             )
+            
+            print(f"[DEBUG AI] Рекомендации получены: {type(recommendations)}")
             
             # Отобразить в текстовом поле
             self.ai_recommendations_text.config(state=tk.NORMAL)
@@ -2931,8 +2945,12 @@ class EnhancedUnfoldingAreaGUI:
             self.ai_recommendations_text.config(state=tk.DISABLED)
             
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"[ERROR AI] Ошибка AI-анализа:")
+            print(error_details)
             messagebox.showerror("Ошибка AI-анализа", 
-                               f"Не удалось получить рекомендации:\n{e}")
+                               f"Не удалось получить рекомендации:\n{e}\n\nПодробности в консоли.")
     
     def scan_projects_database(self):
         """
