@@ -21,9 +21,6 @@ from area_calculator import UnfoldingAreaCalculator
 from components.rectpack_optimizer import RectpackOptimizer
 from components.smart_nesting_optimizer import SmartNestingOptimizer
 from components.dxf_contour_renderer import DXFContourRenderer
-from components.optimality_analyzer import OptimalityAnalyzer
-from components.project_dimension_extractor import ProjectDimensionExtractor
-from components.ai_optimizer import AIRecommendationEngine  # v3.0
 from components.projects_database import ProjectsDatabase  # v3.0
 
 
@@ -32,27 +29,30 @@ class EnhancedUnfoldingAreaGUI:
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("ZVD - Расчет площадей разверток v3.0 (с AI-рекомендациями)")
+        self.root.title("ZVD - Расчет площадей разверток v3.0 (с рекомендациями по оптимизации)")
         
-        # Адаптивный размер окна
+        # Компактный размер окна по умолчанию
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         
-        # Окно занимает 85% экрана, но не больше 1400px по ширине
-        window_width = min(1400, int(screen_width * 0.85))
-        window_height = min(900, int(screen_height * 0.90))
+        # Компактное окно по умолчанию
+        window_width = min(1000, int(screen_width * 0.6))  # Уменьшено с 1400 до 1000
+        window_height = min(600, int(screen_height * 0.6))  # Уменьшено с 900 до 600
         
         x = (screen_width - window_width) // 2
         y = (screen_height - window_height) // 2
         
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
-        self.root.minsize(1200, 800)  # Увеличен минимальный размер для комфортной работы
+        self.root.minsize(800, 500)  # Уменьшен минимальный размер
         
-        # Разрешаем развернуть на весь экран
-        self.root.state('zoomed')  # Открываем на весь экран (можно свернуть)
+        # НЕ открываем на весь экран по умолчанию
+        # self.root.state('zoomed')  # Закомментировано
         
         # Настройка стилей
         self.setup_styles()
+        
+        # Флаг для отслеживания размера окна
+        self.window_expanded = False
         
         self.folder_path = tk.StringVar()
         self.order_number = tk.StringVar()
@@ -65,9 +65,6 @@ class EnhancedUnfoldingAreaGUI:
         self.optimizer = RectpackOptimizer()
         self.smart_optimizer = SmartNestingOptimizer()  # НОВЫЙ умный оптимизатор
         self.contour_renderer = DXFContourRenderer()  # Рендерер реальных контуров
-        self.optimality_analyzer = OptimalityAnalyzer()  # НОВЫЙ анализатор оптимальности
-        self.ai_engine = AIRecommendationEngine()  # v3.0: AI-рекомендации
-        self.dimension_extractor = ProjectDimensionExtractor()  # Экстрактор габаритов
         self.projects_db = ProjectsDatabase()  # v3.0: База данных проектов
         self.last_nesting_result = None  # Последний результат раскроя
         self.current_dimensions = None  # Текущие габариты проекта
@@ -238,9 +235,9 @@ class EnhancedUnfoldingAreaGUI:
             "Файл развертки",
             "Ширина\nмм",
             "Высота\nмм",
-            "Площадь\nм²",
+            "Площадь\nм2",
             "Кол-во\nшт",
-            "Итого\nм²"
+            "Итого\nм2"
         ]
         
         for col, text in enumerate(headers_config):
@@ -262,7 +259,7 @@ class EnhancedUnfoldingAreaGUI:
         summary_center.pack(anchor='center')
         
         self.summary_label = ttk.Label(summary_center, 
-                                       text="ИТОГО: 0.0000 м² | С зазорами: 0.0000 м²",
+                                       text="ИТОГО: 0.0000 м2 | С зазорами: 0.0000 м2",
                                        font=('Arial', 12, 'bold'),
                                        foreground='#2E7D32')
         self.summary_label.pack(pady=(0,5))
@@ -276,8 +273,19 @@ class EnhancedUnfoldingAreaGUI:
                   width=20).pack(side=tk.LEFT, padx=3)
         ttk.Button(controls_row, text="🗑️ Сбросить", 
                   command=self.clear_all_data,
-                  width=12,
+                  width=18,
                   style='Warning.TButton').pack(side=tk.LEFT, padx=3)
+        
+        # Кнопки управления проектом
+        project_controls = ttk.Frame(summary_center)
+        project_controls.pack(pady=(5,0))
+        
+        ttk.Button(project_controls, text="📁 Добавить файлы", 
+                  command=self.add_files_to_project,
+                  width=18).pack(side=tk.LEFT, padx=3)
+        ttk.Button(project_controls, text="📂 Добавить папку", 
+                  command=self.add_files_from_folder,
+                  width=18).pack(side=tk.LEFT, padx=3)
         
         # ГЛАВНАЯ КНОПКА РАСКРОЯ
         ttk.Button(summary_center, text="🚀 Запустить раскрой и создать отчеты",
@@ -293,106 +301,53 @@ class EnhancedUnfoldingAreaGUI:
                                        anchor='center')
         self.nesting_label.pack(pady=(5,0))
         
-        # === НАСТРОЙКИ РАСКРОЯ (v3.0) ===
-        nesting_settings_frame = ttk.LabelFrame(main_frame, text="⚙️ Настройки раскроя (rectpack)", padding="10")
-        nesting_settings_frame.pack(fill=tk.X, pady=(0, 5))
+        # Скрытые переменные для внутреннего использования
+        self.nesting_algorithm = tk.StringVar(value='SMART')  # Умный алгоритм по умолчанию
+        self.allow_rotation_var = tk.BooleanVar(value=True)  # Всегда разрешаем поворот
+    
+    def _choose_best_algorithm(self, files_data: List[Dict]) -> str:
+        """
+        Автоматический выбор лучшего алгоритма на основе анализа деталей
         
-        settings_container = ttk.Frame(nesting_settings_frame)
-        settings_container.pack(anchor='center')
+        Args:
+            files_data: Список деталей для анализа
+            
+        Returns:
+            Название лучшего алгоритма
+        """
+        if not files_data:
+            return 'SMART'  # По умолчанию умный алгоритм
         
-        # Строка 1: Алгоритм и поворот
-        settings_row1 = ttk.Frame(settings_container)
-        settings_row1.pack(pady=2)
+        # Анализируем характеристики деталей
+        total_parts = sum(f.get('quantity', 1) for f in files_data)
+        large_parts = sum(1 for f in files_data if f.get('width', 0) > 500 or f.get('height', 0) > 500)
+        small_parts = sum(1 for f in files_data if f.get('width', 0) < 200 and f.get('height', 0) < 200)
+        mixed_sizes = len(set((f.get('width', 0), f.get('height', 0)) for f in files_data))
         
-        ttk.Label(settings_row1, text="Алгоритм:", font=('Arial', 9)).pack(side=tk.LEFT, padx=(0,5))
+        print(f"[DEBUG] Анализ деталей для выбора алгоритма:")
+        print(f"  Всего деталей: {total_parts}")
+        print(f"  Крупных деталей: {large_parts}")
+        print(f"  Мелких деталей: {small_parts}")
+        print(f"  Разных размеров: {mixed_sizes}")
         
-        self.nesting_algorithm = tk.StringVar(value='BFF')
-        algorithm_combo = ttk.Combobox(settings_row1, textvariable=self.nesting_algorithm, 
-                                      values=['BFF', 'BNF'], width=10, state='readonly')
-        algorithm_combo.pack(side=tk.LEFT, padx=(0,15))
+        # Логика выбора алгоритма
+        if total_parts <= 5 and large_parts >= 2:
+            # Мало деталей, много крупных - используем rectpack BFF
+            print(f"[DEBUG] Выбран RECTPACK BFF (мало деталей, много крупных)")
+            return 'RECTPACK_BFF'
+        elif total_parts > 10 and small_parts >= 3:
+            # Много деталей, много мелких - используем умный алгоритм
+            print(f"[DEBUG] Выбран SMART (много деталей, много мелких)")
+            return 'SMART'
+        elif mixed_sizes >= 5:
+            # Много разных размеров - используем умный алгоритм
+            print(f"[DEBUG] Выбран SMART (много разных размеров)")
+            return 'SMART'
+        else:
+            # По умолчанию - умный алгоритм
+            print(f"[DEBUG] Выбран SMART (по умолчанию)")
+            return 'SMART'
         
-        # Подсказка для алгоритма
-        algo_hint = ttk.Label(settings_row1, text="ℹ️", font=('Arial', 10), foreground='#1976D2', cursor='hand2')
-        algo_hint.pack(side=tk.LEFT, padx=(0,10))
-        
-        def show_algo_help(event):
-            messagebox.showinfo("Выбор алгоритма", 
-                              "🔹 BFF (Best Fit First) - РЕКОМЕНДУЕТСЯ\n" +
-                              "   Лучшее качество раскроя\n" +
-                              "   Время: средняя скорость\n\n" +
-                              "🔹 BNF (Best Fit)\n" +
-                              "   Хорошее качество\n" +
-                              "   Время: быстро\n\n" +
-                              "💡 Для лучшего результата используйте BFF")
-        
-        algo_hint.bind('<Button-1>', show_algo_help)
-        
-        self.allow_rotation_var = tk.BooleanVar(value=True)
-        rotation_check = ttk.Checkbutton(settings_row1, text="Разрешить поворот деталей (90°)", 
-                                        variable=self.allow_rotation_var)
-        rotation_check.pack(side=tk.LEFT, padx=(0,10))
-        
-        # Строка 2: Информация
-        settings_row2 = ttk.Frame(settings_container)
-        settings_row2.pack(pady=2)
-        
-        info_text = "💡 Используется библиотека rectpack для оптимального раскроя (+10-20% эффективности)"
-        ttk.Label(settings_row2, text=info_text, font=('Arial', 8), foreground='#1976D2').pack()
-        
-        # === ЗОНА ОПТИМАЛЬНОСТИ (НОВОЕ!) ===
-        optimality_frame = ttk.LabelFrame(main_frame, text="🎯 Оптимальность габаритов", padding="10")
-        optimality_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        # Контейнер для центрирования
-        opt_center = ttk.Frame(optimality_frame)
-        opt_center.pack(anchor='center', fill=tk.X, expand=True)
-        
-        # Индикатор зоны - компактный, только процент и зона
-        self.zone_label = tk.Label(opt_center,
-                                   text="Загрузите проект для анализа",
-                                   font=('Arial', 12, 'bold'),
-                                   bg='#E0E0E0',
-                                   fg='#424242',
-                                   padx=20,
-                                   pady=10,
-                                   relief=tk.FLAT)
-        self.zone_label.pack(pady=(0, 10))
-        
-        # НОВОЕ: Красивый прогресс-бар
-        progress_container = tk.Frame(opt_center, bg='white')
-        progress_container.pack(fill=tk.X, padx=20, pady=(0, 10))
-        
-        # Canvas для прогресс-бара
-        self.progress_canvas = tk.Canvas(progress_container, 
-                                         height=30, 
-                                         bg='#F0F0F0',
-                                         highlightthickness=1,
-                                         highlightbackground='#CCCCCC')
-        self.progress_canvas.pack(fill=tk.X)
-        
-        # Переменные для прогресс-бара
-        self.progress_value = 0
-        self.progress_bar_id = None
-        self.progress_text_id = None
-        
-        # Рекомендации
-        self.optimality_recommendations = tk.Text(opt_center, 
-                                                 height=3, 
-                                                 width=70,
-                                                 font=('Arial', 9),
-                                                 bg='#FFFDE7',
-                                                 relief=tk.FLAT,
-                                                 wrap=tk.WORD,
-                                                 state=tk.DISABLED)
-        self.optimality_recommendations.pack(pady=(5, 0))
-        
-        # НОВОЕ: Кнопка ручного пересчёта оптимальности
-        refresh_opt_btn = ttk.Button(opt_center, 
-                                     text="🔄 Обновить оптимальность",
-                                     command=self.update_optimality_analysis,
-                                     style='Accent.TButton',
-                                     width=25)
-        refresh_opt_btn.pack(pady=(5, 0))
         
         # Подсказка с рекомендацией
         hint_label = ttk.Label(opt_center,
@@ -401,65 +356,6 @@ class EnhancedUnfoldingAreaGUI:
                               foreground='#1976D2')
         hint_label.pack(pady=(3, 0))
         
-        # === AI-РЕКОМЕНДАЦИИ v3.0 (НОВОЕ!) ===
-        ai_frame = ttk.LabelFrame(main_frame, text="🧠 AI-Рекомендации по оптимизации (v3.0)", padding="10")
-        ai_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        # Контейнер
-        ai_container = ttk.Frame(ai_frame)
-        ai_container.pack(fill=tk.X)
-        
-        # Текстовое поле для рекомендаций
-        self.ai_recommendations_text = tk.Text(ai_container,
-                                              height=6,
-                                              width=80,
-                                              font=('Arial', 9),
-                                              bg='#E8F5E9',
-                                              fg='#1B5E20',
-                                              relief=tk.GROOVE,
-                                              wrap=tk.WORD,
-                                              state=tk.DISABLED)
-        self.ai_recommendations_text.pack(pady=(0, 10))
-        
-        # Изначальное сообщение
-        self.ai_recommendations_text.config(state=tk.NORMAL)
-        self.ai_recommendations_text.insert('1.0', 
-            "💡 AI-рекомендации появятся после запуска раскроя\n\n"
-            "Программа проанализирует результат и подскажет:\n"
-            "  • Какие детали добавить для повышения утилизации\n"
-            "  • Из каких проектов их взять\n"
-            "  • Прогноз утилизации после добавления")
-        self.ai_recommendations_text.config(state=tk.DISABLED)
-        
-        # Кнопки управления
-        ai_buttons_row = ttk.Frame(ai_container)
-        ai_buttons_row.pack(pady=(0, 5))
-        
-        self.ai_get_recommendations_btn = ttk.Button(ai_buttons_row,
-                                                     text="🧠 Получить AI-рекомендации",
-                                                     command=self.get_ai_recommendations,
-                                                     state=tk.DISABLED,
-                                                     width=28)
-        self.ai_get_recommendations_btn.pack(side=tk.LEFT, padx=3)
-        
-        self.scan_projects_btn = ttk.Button(ai_buttons_row,
-                                           text="📁 Сканировать проекты",
-                                           command=self.scan_projects_database,
-                                           width=25)
-        self.scan_projects_btn.pack(side=tk.LEFT, padx=3)
-        
-        # Статус базы данных
-        self.db_status_label = ttk.Label(ai_container,
-                                        text="База данных: не загружена",
-                                        font=('Arial', 8),
-                                        foreground='#666')
-        self.db_status_label.pack(pady=(5,0))
-        
-        # Инфо
-        ai_info = ttk.Label(ai_container,
-                           text="✨ v3.0: Умный подбор деталей для максимальной утилизации листа",
-                           font=('Arial', 8),
-                           foreground='#388E3C')
         ai_info.pack(pady=(5,0))
     
     def browse_folder(self):
@@ -468,109 +364,7 @@ class EnhancedUnfoldingAreaGUI:
         if folder:
             self.folder_path.set(folder)
     
-    def update_progress_bar(self, utilization: float, color: str):
-        """Обновить визуальный прогресс-бар"""
-        try:
-            canvas = self.progress_canvas
-            width = canvas.winfo_width()
-            if width <= 1:
-                width = 400  # Начальная ширина
-            
-            height = 30
-            
-            # Очищаем canvas
-            canvas.delete('all')
-            
-            # Рассчитываем ширину заполнения
-            fill_width = int(width * utilization / 100)
-            
-            # Рисуем фон (серый)
-            canvas.create_rectangle(0, 0, width, height, 
-                                   fill='#F0F0F0', 
-                                   outline='#CCCCCC',
-                                   width=1)
-            
-            # Рисуем заполнение (цветное) с градиентом
-            if fill_width > 0:
-                # Основной цвет
-                canvas.create_rectangle(0, 0, fill_width, height,
-                                       fill=color,
-                                       outline='',
-                                       width=0)
-                
-                # Эффект глянца (светлая полоса сверху)
-                canvas.create_rectangle(0, 0, fill_width, height//3,
-                                       fill='white',
-                                       outline='',
-                                       stipple='gray50')  # Полупрозрачность
-            
-            # Текст с процентом (по центру)
-            text_color = 'white' if utilization > 50 else '#333'
-            canvas.create_text(width//2, height//2,
-                              text=f"{utilization:.1f}%",
-                              font=('Arial', 13, 'bold'),
-                              fill=text_color)
-            
-            # Деления на шкале (каждые 25%)
-            for mark in [25, 50, 75]:
-                x = int(width * mark / 100)
-                canvas.create_line(x, 0, x, height,
-                                  fill='#999',
-                                  width=1,
-                                  dash=(2, 2))
-            
-        except Exception as e:
-            print(f"[DEBUG] Ошибка обновления прогресс-бара: {e}")
     
-    def update_optimality_analysis(self):
-        """Обновить анализ оптимальности габаритов (вызывается при изменении количества)"""
-        if not self.files_data or not self.current_dimensions or not self.project_info:
-            return
-        
-        try:
-            L = self.current_dimensions['L']
-            H = self.current_dimensions['H']
-            W = self.current_dimensions['W']
-            
-            # Анализируем оптимальность С УЧЁТОМ ТЕКУЩЕГО СОСТАВА ДЕТАЛЕЙ
-            analysis = self.optimality_analyzer.analyze_project_dimensions(
-                L, H, W, parts_data=self.files_data
-            )
-            
-            util = analysis['actual_utilization']
-            
-            # Определяем зону без текста "ЗОНА"
-            if util >= 85:
-                zone_short = "ОТЛИЧНО"
-                emoji = "🟢"
-            elif util >= 70:
-                zone_short = "ХОРОШО"
-                emoji = "🟡"
-            elif util >= 55:
-                zone_short = "СРЕДНЕ"
-                emoji = "🟠"
-            else:
-                zone_short = "ТРЕБУЕТ УЛУЧШЕНИЯ"
-                emoji = "🔴"
-            
-            # Обновляем метку (компактно)
-            if hasattr(self, 'zone_label') and self.zone_label:
-                self.zone_label.config(
-                    text=f"{emoji} {zone_short} • {util:.1f}%",
-                    bg=analysis['zone_color'],
-                    fg='white'
-                )
-            
-            # Обновляем прогресс-бар
-            if hasattr(self, 'progress_canvas'):
-                self.update_progress_bar(util, analysis['zone_color'])
-            
-            print(f"[DEBUG] Оптимальность обновлена: {zone_short} ({util:.1f}%)")
-            
-        except Exception as e:
-            print(f"[DEBUG] Ошибка обновления оптимальности: {e}")
-            import traceback
-            traceback.print_exc()
     
     def _add_file_row_to_table(self, file_data: dict, idx: int):
         """Добавить строку с файлом в таблицу"""
@@ -696,8 +490,6 @@ class EnhancedUnfoldingAreaGUI:
             # Обновляем итоги
             self.update_summary()
             
-            # Автоматически пересчитываем оптимальность
-            self.update_optimality_analysis()
             
             # Проверяем, есть ли файлы из разных источников
             sources = set()
@@ -774,8 +566,12 @@ class EnhancedUnfoldingAreaGUI:
             
             self.update_summary()
             
-            # Анализируем оптимальность габаритов
-            self.analyze_optimality()
+            # Адаптивно расширяем окно при заполнении таблицы
+            self.expand_window_for_table()
+            
+            # Анализируем готовность к лазерной резке
+            self.analyze_cutting_readiness()
+            
             
             messagebox.showinfo("Успех", f"Загружено файлов: {len(self.files_data)}")
             
@@ -819,8 +615,6 @@ class EnhancedUnfoldingAreaGUI:
                 # Обновляем общие итоги
                 self.root.after(100, self.update_summary)  # Небольшая задержка для плавности
                 
-                # НОВОЕ: Автоматический пересчёт оптимальности при изменении количества
-                self.root.after(200, self.update_optimality_analysis)  # С небольшой задержкой после summary
             
         except Exception as e:
             print(f"Ошибка обновления: {e}")  # Для отладки
@@ -832,8 +626,6 @@ class EnhancedUnfoldingAreaGUI:
         
         self.update_summary()
         
-        # НОВОЕ: Автоматический пересчёт оптимальности при изменении количества
-        self.update_optimality_analysis()
     
     def clear_all_data(self):
         """Очистить все данные в программе"""
@@ -867,7 +659,7 @@ class EnhancedUnfoldingAreaGUI:
         self.last_nesting_result = None
         
         # Сбрасываем итоги
-        self.summary_label.config(text="ИТОГО: 0.0000 м² | С зазорами: 0.0000 м²")
+        self.summary_label.config(text="ИТОГО: 0.0000 м2 | С зазорами: 0.0000 м2")
         
         # Очищаем поля
         self.folder_path.set("")
@@ -896,153 +688,15 @@ class EnhancedUnfoldingAreaGUI:
     def update_summary(self):
         """Обновление итогов"""
         if not self.files_data:
-            self.summary_label.config(text="ИТОГО: 0.0000 м² | С зазорами: 0.0000 м²")
+            self.summary_label.config(text="ИТОГО: 0.0000 м2 | С зазорами: 0.0000 м2")
             return
             
         total = sum(f['total_area'] for f in self.files_data)
         total_with_gap = sum(f['area_with_gap'] * f['quantity'] for f in self.files_data)
         
-        self.summary_label.config(text=f"ИТОГО: {total:.4f} м² | С зазорами: {total_with_gap:.4f} м²")
+        self.summary_label.config(text=f"ИТОГО: {total:.4f} м2 | С зазорами: {total_with_gap:.4f} м2")
     
-    def analyze_optimality(self):
-        """Анализ оптимальности габаритов проекта"""
-        
-        if not self.files_data:
-            return
-        
-        try:
-            # Используем новый экстрактор для анализа структуры проекта
-            dxf_folder = self.folder_path.get()
-            print(f"[DEBUG] Анализ габаритов для папки: {dxf_folder}")
-            self.project_info = self.dimension_extractor.analyze_project_structure(dxf_folder)
-            print(f"[DEBUG] project_info is_valid: {self.project_info.get('is_valid', False)}")
-            
-            if not self.project_info['is_valid']:
-                # Габариты не распознаны - работаем без анализа оптимальности
-                print(f"[DEBUG] Габариты не распознаны из названия папки")
-                print(f"[DEBUG] Устанавливаем current_dimensions в None")
-                self._show_no_dimensions_info()
-                self.current_dimensions = None
-                print(f"[WARNING] AI-рекомендации будут недоступны (нет габаритов H,W,L)")
-                return
-            
-            # Извлекаем габариты
-            dims = self.project_info['dimensions']
-            H = dims['H']
-            W = dims['W']
-            L = dims['L']
-            
-            self.current_dimensions = dims
-            print(f"[DEBUG] Габариты установлены: H={H}, W={W}, L={L}")
-            print(f"[OK] AI-рекомендации будут доступны")
-            
-            # Количество конвекторов
-            conveyors_count = self.project_info['conveyors_count']
-            
-            # Анализируем оптимальность
-            analysis = self.optimality_analyzer.analyze_project_dimensions(
-                L, H, W, parts_data=self.files_data
-            )
-            
-            # Определяем зону без текста "ЗОНА"
-            util = analysis['actual_utilization']
-            if util >= 85:
-                zone_short = "ОТЛИЧНО"
-                emoji = "🟢"
-            elif util >= 70:
-                zone_short = "ХОРОШО"
-                emoji = "🟡"
-            elif util >= 55:
-                zone_short = "СРЕДНЕ"
-                emoji = "🟠"
-            else:
-                zone_short = "ТРЕБУЕТ УЛУЧШЕНИЯ"
-                emoji = "🔴"
-            
-            # Обновляем индикатор зоны (компактно)
-            self.zone_label.config(
-                text=f"{emoji} {zone_short} • {util:.1f}% • H={H} W={W} L={L}",
-                bg=analysis['zone_color'],
-                fg='white'
-            )
-            
-            # Обновляем прогресс-бар
-            self.update_progress_bar(util, analysis['zone_color'])
-            
-            # Обновляем рекомендации
-            self.optimality_recommendations.config(state=tk.NORMAL)
-            self.optimality_recommendations.delete('1.0', tk.END)
-            
-            rec_text = ""
-            
-            # Добавляем информацию о проекте
-            rec_text += f"[i] Проект: {self.project_info['project_name']}\n"
-            
-            if analysis.get('is_magic'):
-                rec_text += f"[MAGIC] Длина L={L} - МАГИЧЕСКОЕ ЧИСЛО! Минимум обрезков!\n"
-            
-            # Рекомендации анализатора
-            for rec in analysis['recommendations']:
-                icon = "[OK]" if rec['type'] == 'success' else ("[!]" if rec['type'] == 'warning' else "[i]")
-                rec_text += f"{icon} {rec['text']}\n"
-            
-            if len(analysis['recommendations']) == 0:
-                rec_text += "[OK] Габариты оптимальны! Нет рекомендаций по улучшению."
-            
-            self.optimality_recommendations.insert('1.0', rec_text.strip())
-            self.optimality_recommendations.config(state=tk.DISABLED)
-            
-        except Exception as e:
-            print(f"[DEBUG] Ошибка анализа оптимальности: {e}")
-            import traceback
-            traceback.print_exc()
-            self._show_no_dimensions_info()
     
-    def _show_no_dimensions_info(self):
-        """Показать информацию когда габариты не распознаны"""
-        self.zone_label.config(
-            text="⚠️ Габариты не распознаны - анализ оптимальности недоступен",
-            bg='#9E9E9E',
-            fg='white'
-        )
-        
-        # Обновляем прогресс-бар (пустой)
-        if hasattr(self, 'progress_canvas'):
-            self.progress_canvas.delete('all')
-            width = self.progress_canvas.winfo_width() or 400
-            height = 30
-            
-            # Серый фон
-            self.progress_canvas.create_rectangle(0, 0, width, height,
-                                                 fill='#E0E0E0',
-                                                 outline='#CCCCCC')
-            
-            # Текст по центру
-            self.progress_canvas.create_text(width//2, height//2,
-                                            text="Назовите папку: ZVD.LITE.H.W.L для анализа",
-                                            font=('Arial', 9),
-                                            fill='#666')
-        
-        self.optimality_recommendations.config(state=tk.NORMAL)
-        self.optimality_recommendations.delete('1.0', tk.END)
-        self.optimality_recommendations.insert('1.0', 
-            "💡 Для анализа оптимальности назовите папку в формате:\n" +
-            "   ZVD.LITE.H.W.L (например: ZVD.LITE.110.360.1200)\n\n" +
-            "Расчёт площадей и раскрой работают без этого!"
-        )
-        self.optimality_recommendations.config(state=tk.DISABLED)
-        
-        # Показываем информационное сообщение
-        messagebox.showinfo(
-            "Анализ оптимальности недоступен",
-            "Габариты проекта не распознаны из названия папки.\n\n" +
-            "📋 Расчёт площадей и оптимизация раскроя работают!\n" +
-            "⚠️ Анализ оптимальности габаритов недоступен.\n\n" +
-            "💡 Для анализа оптимальности назовите папку:\n" +
-            "   ZVD.LITE.H.W.L\n" +
-            "   (например: ZVD.LITE.110.360.1200)\n\n" +
-            "Где H=высота, W=ширина, L=длина в мм."
-        )
     
     def refresh_all(self):
         """🔄 ОБНОВИТЬ ВСЁ - полное обновление программы"""
@@ -1121,17 +775,37 @@ class EnhancedUnfoldingAreaGUI:
                 print(f"  - {fd['filename']}: {fd['width']}x{fd['height']} мм, qty={fd['quantity']}")
                 print(f"    filepath: {fd.get('filepath', 'НЕТ ПУТИ!')}")
             
-            # УМНАЯ оптимизация с комбинированием больших и маленьких деталей
-            # Используем настройки из GUI
+            # АВТОМАТИЧЕСКИЙ ВЫБОР АЛГОРИТМА
+            chosen_algorithm = self._choose_best_algorithm(self.files_data)
             allow_rotation = self.allow_rotation_var.get() if hasattr(self, 'allow_rotation_var') else True
             
-            self.logger.info(f"\n🔧 Настройки раскроя:")
+            self.logger.info(f"\n🤖 Автоматический выбор алгоритма:")
+            self.logger.info(f"   Выбран: {chosen_algorithm}")
             self.logger.info(f"   Поворот: {'Да' if allow_rotation else 'Нет'}")
             
-            result = self.smart_optimizer.optimize_smart(
-                self.files_data,  # Передаем исходные данные с количеством
-                allow_rotation=allow_rotation
-            )
+            # Выполняем оптимизацию выбранным алгоритмом
+            if chosen_algorithm == 'RECTPACK_BFF':
+                # Используем rectpack для простых случаев
+                parts_data = []
+                for fd in self.files_data:
+                    for _ in range(fd.get('quantity', 1)):
+                        parts_data.append({
+                            'name': fd['filename'],
+                            'width_mm': fd['width'],
+                            'height_mm': fd['height'],
+                            'area_m2': (fd['width'] * fd['height']) / 1_000_000,
+                            'quantity': 1
+                        })
+                
+                result = self.optimizer.optimize_layout(parts_data, 
+                                                      allow_rotation=allow_rotation,
+                                                      algorithm='BFF')
+            else:
+                # Используем умный алгоритм для сложных случаев
+                result = self.smart_optimizer.optimize_smart(
+                    self.files_data,  # Передаем исходные данные с количеством
+                    allow_rotation=allow_rotation
+                )
             
             print(f"[DEBUG] Результат оптимизации: {result['sheets_needed']} листов")
             
@@ -1144,7 +818,10 @@ class EnhancedUnfoldingAreaGUI:
                 f"✓ Всего деталей: {total_parts_count} шт\n" +
                 f"✓ Листов требуется: {result['sheets_needed']}\n" +
                 f"✓ Использование: {result['utilization_percent']:.1f}%\n" +
-                f"✓ Обрезки: {result['overall_waste_percent']:.1f}%"
+                f"✓ Обрезки: {result['overall_waste_percent']:.1f}%\n" +
+                f"✓ Длина реза: {result.get('total_cut_length_mm', 0)/1000:.1f} м\n" +
+                f"✓ Контуров: {result.get('total_contours', 0)} шт\n" +
+                f"✓ Время резки: {result.get('cutting_time_minutes', 0):.1f} мин"
             )
             self.nesting_label.config(text=info_text, foreground='green')
             
@@ -1212,10 +889,9 @@ class EnhancedUnfoldingAreaGUI:
                 print(f"[DEBUG] Пользователь отказался от создания отчетов")
                 messagebox.showinfo("ОК", "Раскладка готова!\nОтчеты не созданы.")
             
-            # v3.0: Активировать кнопку AI-рекомендаций после раскроя
-            if hasattr(self, 'ai_get_recommendations_btn'):
-                self.ai_get_recommendations_btn.config(state=tk.NORMAL)
-                print(f"[DEBUG v3.0] AI-рекомендации активированы")
+            # Обновляем статус
+            self.nesting_label.config(text="✅ Раскрой завершен успешно!")
+            
             
         except Exception as e:
             messagebox.showerror("Ошибка", f"Ошибка оптимизации:\n{e}")
@@ -1248,17 +924,33 @@ class EnhancedUnfoldingAreaGUI:
                         'quantity': file_data['quantity']
                     })
             
-            # Оптимизация с настройками из GUI
-            algorithm = self.nesting_algorithm.get() if hasattr(self, 'nesting_algorithm') else 'BFF'
+            # АВТОМАТИЧЕСКИЙ ВЫБОР АЛГОРИТМА
+            chosen_algorithm = self._choose_best_algorithm(self.files_data)
             allow_rotation = self.allow_rotation_var.get() if hasattr(self, 'allow_rotation_var') else True
             
-            self.logger.info(f"\n🔧 Настройки раскроя:")
-            self.logger.info(f"   Алгоритм: {algorithm}")
+            self.logger.info(f"\n🤖 Автоматический выбор алгоритма:")
+            self.logger.info(f"   Выбран: {chosen_algorithm}")
             self.logger.info(f"   Поворот: {'Да' if allow_rotation else 'Нет'}")
             
-            result = self.optimizer.optimize_layout(parts_data, 
-                                                   allow_rotation=allow_rotation, 
-                                                   algorithm=algorithm)
+            # Выполняем оптимизацию выбранным алгоритмом
+            if chosen_algorithm == 'RECTPACK_BFF':
+                result = self.optimizer.optimize_layout(parts_data, 
+                                                      allow_rotation=allow_rotation,
+                                                      algorithm='BFF')
+            else:
+                # Для умного алгоритма нужно преобразовать данные
+                smart_data = []
+                for fd in self.files_data:
+                    for _ in range(fd.get('quantity', 1)):
+                        smart_data.append({
+                            'name': fd['filename'],
+                            'width': fd['width'],
+                            'height': fd['height'],
+                            'area': (fd['width'] * fd['height']) / 1_000_000,
+                            'quantity': 1
+                        })
+                
+                result = self.smart_optimizer.optimize_smart(smart_data, allow_rotation=allow_rotation)
             
             if not result['success']:
                 messagebox.showerror("Ошибка", f"Оптимизация не удалась:\n{result.get('error', 'Неизвестная ошибка')}")
@@ -1268,7 +960,10 @@ class EnhancedUnfoldingAreaGUI:
             info_text = (
                 f"✓ Листов требуется: {result['sheets_needed']}\n" +
                 f"✓ Использование: {result['utilization_percent']:.1f}%\n" +
-                f"✓ Обрезки: {result['overall_waste_percent']:.1f}%"
+                f"✓ Обрезки: {result['overall_waste_percent']:.1f}%\n" +
+                f"✓ Длина реза: {result.get('total_cut_length_mm', 0)/1000:.1f} м\n" +
+                f"✓ Контуров: {result.get('total_contours', 0)} шт\n" +
+                f"✓ Время резки: {result.get('cutting_time_minutes', 0):.1f} мин"
             )
             self.nesting_label.config(text=info_text, foreground='green')
             
@@ -1281,6 +976,10 @@ class EnhancedUnfoldingAreaGUI:
                               f"Использование: {result['utilization_percent']:.1f}%\n" +
                               f"Обрезки: {result['overall_waste_percent']:.1f}%\n\n" +
                               "PDF с раскладкой и Excel с обрезками созданы!")
+            
+            # Обновляем статус
+            self.nesting_label.config(text="✅ Раскрой завершен успешно!")
+            
             
         except Exception as e:
             messagebox.showerror("Ошибка", f"Ошибка оптимизации:\n{e}")
@@ -1418,7 +1117,7 @@ class EnhancedUnfoldingAreaGUI:
             ws.title = "Развертки"
             
             # Заголовки
-            headers = ["№", "Файл", "Ширина (мм)", "Высота (мм)", "Площадь (м²)", "Количество", "Итого (м²)"]
+            headers = ["№", "Файл", "Ширина (мм)", "Высота (мм)", "Площадь (м2)", "Количество", "Итого (м2)"]
             ws.append(headers)
             
             # Стиль заголовков
@@ -1462,7 +1161,7 @@ class EnhancedUnfoldingAreaGUI:
             ws.column_dimensions['G'].width = 15
             
             wb.save(filename)
-            messagebox.showinfo("Успех", f"Excel создан:\n{filename}\n\nОбщая площадь: {total_area:.4f} м²")
+            messagebox.showinfo("Успех", f"Excel создан:\n{filename}\n\nОбщая площадь: {total_area:.4f} м2")
             
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось создать Excel:\n{e}")
@@ -1543,8 +1242,8 @@ class EnhancedUnfoldingAreaGUI:
                                      padding=10)
         sheet_frame.pack(fill='x', pady=10)
         
-        # Canvas для рисования
-        canvas_width = 1000
+        # Canvas для рисования (увеличен для легенды)
+        canvas_width = 1400  # Увеличено с 1000 до 1400
         canvas_height = 500
         canvas = tk.Canvas(sheet_frame, width=canvas_width, height=canvas_height, bg='white')
         canvas.pack()
@@ -1569,7 +1268,7 @@ class EnhancedUnfoldingAreaGUI:
         # Подпись размера листа
         canvas.create_text(
             offset_x + (SHEET_WIDTH * scale) / 2, offset_y - 15,
-            text=f"Лист {SHEET_WIDTH}×{SHEET_HEIGHT} мм",
+            text=f"Лист {SHEET_WIDTH}x{SHEET_HEIGHT} мм",
             font=('Arial', 10, 'bold'), fill='red'
         )
         
@@ -1638,7 +1337,7 @@ class EnhancedUnfoldingAreaGUI:
             # Размеры (реальные, без зазора)
             real_width = part['width'] - 2 * HALF_GAP
             real_height = part['height'] - 2 * HALF_GAP
-            size_text = f"{real_width:.0f}×{real_height:.0f}"
+            size_text = f"{real_width:.0f}x{real_height:.0f}"
             canvas.create_text(
                 text_x, text_y + 15,
                 text=size_text,
@@ -1796,17 +1495,21 @@ class EnhancedUnfoldingAreaGUI:
                 base_name = part['name'].split('#')[0].strip()
                 
                 if base_name not in parts_summary:
+                    # Используем реальные размеры без зазоров
+                    real_width = part.get('real_width', part['width'] - 5)  # Вычитаем зазор 5мм
+                    real_height = part.get('real_height', part['height'] - 5)
+                    
                     parts_summary[base_name] = {
-                        'width': part['width'],
-                        'height': part['height'],
-                        'area_one': (part['width'] * part['height']) / 1_000_000,
+                        'width': real_width,
+                        'height': real_height,
+                        'area_one': (real_width * real_height) / 1_000_000,
                         'quantity': 0
                     }
                 parts_summary[base_name]['quantity'] += 1
         
         # Шапка таблицы (строка row)
         headers = ['№', 'Название детали', 'Ширина (мм)', 'Высота (мм)', 
-                   'Площадь 1 шт (м²)', 'Кол-во (шт)', 'Площадь всего (м²)']
+                   'Площадь 1 шт (м2)', 'Кол-во (шт)', 'Площадь всего (м2)']
         
         for col, header in enumerate(headers, 1):
             cell = ws1.cell(row, col, header)
@@ -1851,11 +1554,14 @@ class EnhancedUnfoldingAreaGUI:
         
         stats = [
             ("Листов требуется:", f"{result['sheets_needed']} шт"),
-            ("Размер листа:", "2500×1250 мм (3.125 м²)"),
-            ("Площадь всех листов:", f"{total_sheets_area:.4f} м²"),
-            ("Площадь деталей:", f"{total_area_all:.4f} м²"),
+            ("Размер листа:", "2500x1250 мм (3.125 м2)"),
+            ("Площадь всех листов:", f"{total_sheets_area:.4f} м2"),
+            ("Площадь деталей:", f"{total_area_all:.4f} м2"),
             ("Использование материала:", f"{result['utilization_percent']:.1f}%"),
-            ("Обрезки (отходы):", f"{result['overall_waste_percent']:.1f}% ({waste_area:.4f} м²)"),
+            ("Обрезки (отходы):", f"{result['overall_waste_percent']:.1f}% ({waste_area:.4f} м2)"),
+            ("Общая длина реза:", f"{result.get('total_cut_length_mm', 0)/1000:.1f} м"),
+            ("Количество контуров:", f"{result.get('total_contours', 0)} шт"),
+            ("Время резки:", f"{result.get('cutting_time_minutes', 0):.1f} мин"),
         ]
         
         for param, value in stats:
@@ -1913,7 +1619,7 @@ class EnhancedUnfoldingAreaGUI:
         
         # Шапка таблицы обрезков (используем row2!)
         headers_waste = ['№ обрезка', 'Лист №', 'Ширина (мм)', 'Высота (мм)', 
-                         'Площадь (м²)', 'Пригодность']
+                         'Площадь (м2)', 'Пригодность']
         
         for col, header in enumerate(headers_waste, 1):
             cell = ws2.cell(row2, col, header)
@@ -1936,13 +1642,13 @@ class EnhancedUnfoldingAreaGUI:
             
             print(f"[DEBUG] Лист {sheet['number']}: площадь листа={sheet_area_m2:.4f} м2, детали={parts_area:.4f} м2, обрезки={waste_area_sheet:.4f} м2")
             
-            if waste_area_sheet > 0.01:  # Если обрезок больше 0.01 м²
+            if waste_area_sheet > 0.01:  # Если обрезок больше 0.01 м2
                 # Примерные размеры обрезка (упрощенно)
                 # В реальности нужно вычислять геометрию, но это сложно
                 # Предполагаем что обрезки примерно квадратные или прямоугольные
                 
                 # Создаем несколько обрезков если площадь большая
-                num_scraps = max(1, int(waste_area_sheet / 0.1))  # Примерно по 0.1 м² каждый
+                num_scraps = max(1, int(waste_area_sheet / 0.1))  # Примерно по 0.1 м2 каждый
                 
                 print(f"[DEBUG] Создаем {num_scraps} обрезков для листа {sheet['number']}")
                 
@@ -2122,10 +1828,14 @@ class EnhancedUnfoldingAreaGUI:
                 base_name = part['name'].split('#')[0].strip()
                 
                 if base_name not in parts_summary:
+                    # Используем реальные размеры без зазоров
+                    real_width = part.get('real_width', part['width'] - 5)  # Вычитаем зазор 5мм
+                    real_height = part.get('real_height', part['height'] - 5)
+                    
                     parts_summary[base_name] = {
-                        'width': part['width'],
-                        'height': part['height'],
-                        'area_one': (part['width'] * part['height']) / 1_000_000,  # м²
+                        'width': real_width,
+                        'height': real_height,
+                        'area_one': (real_width * real_height) / 1_000_000,  # м2
                         'quantity': 0,
                         'total_area': 0
                     }
@@ -2141,7 +1851,7 @@ class EnhancedUnfoldingAreaGUI:
         
         table_data = [
             ['№', 'Название детали', 'Ширина\n(мм)', 'Высота\n(мм)', 
-             'Площадь\n1 шт (м²)', 'Кол-во\n(шт)', 'Площадь\nвсего (м²)']
+             'Площадь\n1 шт (м2)', 'Кол-во\n(шт)', 'Площадь\nвсего (м2)']
         ]
         
         total_area_all = 0
@@ -2219,18 +1929,21 @@ class EnhancedUnfoldingAreaGUI:
         y -= 8*mm
         
         # Расчет данных
-        sheet_area = (2500 * 1250) / 1_000_000  # м²
+        sheet_area = (2500 * 1250) / 1_000_000  # м2
         total_sheets_area = result['sheets_needed'] * sheet_area
         waste_area = total_sheets_area - total_area_all
         
         stats_data = [
             ['Параметр', 'Значение'],
             ['Листов требуется', f"{result['sheets_needed']} шт"],
-            ['Размер листа', '2500×1250 мм (3.125 м²)'],
-            ['Площадь всех листов', f"{total_sheets_area:.4f} м²"],
-            ['Площадь деталей', f"{total_area_all:.4f} м²"],
+            ['Размер листа', '2500x1250 мм (3.125 м2)'],
+            ['Площадь всех листов', f"{total_sheets_area:.4f} м2"],
+            ['Площадь деталей', f"{total_area_all:.4f} м2"],
             ['Использование материала', f"{result['utilization_percent']:.1f}%"],
-            ['Обрезки (отходы)', f"{result['overall_waste_percent']:.1f}% ({waste_area:.4f} м²)"],
+            ['Обрезки (отходы)', f"{result['overall_waste_percent']:.1f}% ({waste_area:.4f} м2)"],
+            ['Общая длина реза', f"{result.get('total_cut_length_mm', 0)/1000:.1f} м"],
+            ['Количество контуров', f"{result.get('total_contours', 0)} шт"],
+            ['Время резки', f"{result.get('cutting_time_minutes', 0):.1f} мин"],
         ]
         
         stats_table = Table(stats_data, colWidths=[70*mm, 50*mm])
@@ -2350,7 +2063,7 @@ class EnhancedUnfoldingAreaGUI:
             # Размеры листа
             c.setFont(font_name, 10)
             c.drawCentredString(page_width/2, page_height - 28*mm, 
-                               f"Размер листа: {SHEET_WIDTH}×{SHEET_HEIGHT} мм")
+                               f"Размер листа: {SHEET_WIDTH}x{SHEET_HEIGHT} мм")
             
             # Рисуем визуализацию
             # Масштаб для размещения на странице
@@ -2414,7 +2127,7 @@ class EnhancedUnfoldingAreaGUI:
                     size_w = w_real_mm  # Уже вычтен зазор
                     size_h = h_real_mm
                 
-                size_text = f"{size_w:.0f}×{size_h:.0f}"
+                size_text = f"{size_w:.0f}x{size_h:.0f}"
                 
                 # Добавляем в легенду
                 parts_legend.append({
@@ -2556,272 +2269,14 @@ class EnhancedUnfoldingAreaGUI:
             
             MIN_MARGIN = 30*mm  # Минимальный отступ снизу
             
-            # Компактный заголовок
-            c.setFont(font_bold, 12)
-            c.setFillColor(pdf_colors.black)
-            c.drawString(20*mm, y, "АНАЛИЗ ОПТИМАЛЬНОСТИ ГАБАРИТОВ:")
-            y -= 10*mm
-            
-            # Анализируем габариты
-            dims = self.current_dimensions
-            analysis = self.optimality_analyzer.analyze_project_dimensions(
-                dims['L'], dims['H'], dims['W'], parts_data=self.files_data
-            )
-            
-            # Компактная одна строка с зоной и процентом
-            zone_color = analysis['zone_color']
-            r = int(zone_color[1:3], 16) / 255
-            g = int(zone_color[3:5], 16) / 255
-            b = int(zone_color[5:7], 16) / 255
-            
-            c.setFillColorRGB(r, g, b)
-            c.rect(20*mm, y - 8*mm, 70*mm, 7*mm, fill=1, stroke=0)
-            c.setFillColorRGB(1, 1, 1)
-            c.setFont(font_bold, 10)
-            c.drawCentredString(55*mm, y - 5*mm, analysis['zone'])
-            
-            c.setFillColor(pdf_colors.black)
-            c.setFont(font_name, 10)
-            c.drawString(95*mm, y - 3*mm, f"Использование: {analysis['actual_utilization']:.1f}%")
-            
-            y -= 15*mm
-            
-            # === ШКАЛА ИСПОЛЬЗОВАНИЯ ===
-            c.setFillColorRGB(0, 0, 0)  # Чёрный
-            c.setFont(font_bold, 12)
-            c.drawString(20*mm, y, "ИСПОЛЬЗОВАНИЕ МАТЕРИАЛА:")
-            y -= 7*mm
-            
-            # Рисуем шкалу 0-100%
-            bar_width = 240*mm
-            bar_height = 8*mm
-            
-            # Фон шкалы (серый)
-            c.setFillColorRGB(0.9, 0.9, 0.9)
-            c.rect(20*mm, y - bar_height, bar_width, bar_height, fill=1, stroke=1)
-            
-            # Заполнение (зелёное/жёлтое/красное)
-            util = analysis['actual_utilization']
-            filled_width = bar_width * (util / 100)
-            
-            if util >= 80:
-                c.setFillColorRGB(0.298, 0.686, 0.314)  # Зелёный
-            elif util >= 65:
-                c.setFillColorRGB(1.0, 0.756, 0.027)  # Жёлтый
-            else:
-                c.setFillColorRGB(0.957, 0.263, 0.212)  # Красный
-            
-            c.rect(20*mm, y - bar_height, filled_width, bar_height, fill=1, stroke=0)
-            
-            # Текст процента
-            c.setFillColorRGB(0, 0, 0)
-            c.setFont(font_bold, 14)
-            c.drawCentredString(20*mm + bar_width/2, y - bar_height/2 - 2*mm, f"{util:.1f}%")
-            
-            y -= bar_height + 8*mm
-            
-            # Обрезки
-            c.setFont(font_name, 10)
-            waste_percent = 100 - util
-            c.drawString(20*mm, y, f"Обрезки: {waste_percent:.1f}%")
-            
-            y -= 12*mm
-            
-            # === ГРАФИК: ПОЗИЦИЯ НА ШКАЛЕ ОПТИМАЛЬНОСТИ ===
-            c.setFont(font_bold, 12)
-            c.drawString(20*mm, y, "ПОЗИЦИЯ ПРОЕКТА НА ШКАЛЕ ОПТИМАЛЬНОСТИ:")
-            y -= 7*mm
-            
-            # Рисуем горизонтальную шкалу с зонами
-            scale_y = y - 20*mm
-            scale_width = 240*mm
-            scale_height = 15*mm
-            
-            # Зоны на шкале
-            zones = [
-                {'name': 'КРАСНАЯ\n<55%', 'start': 0, 'end': 0.55, 'color': (0.957, 0.263, 0.212)},
-                {'name': 'ОРАНЖЕВАЯ\n55-70%', 'start': 0.55, 'end': 0.70, 'color': (1.0, 0.596, 0.0)},
-                {'name': 'ЖЕЛТАЯ\n70-85%', 'start': 0.70, 'end': 0.85, 'color': (1.0, 0.756, 0.027)},
-                {'name': 'ЗЕЛЕНАЯ\n>85%', 'start': 0.85, 'end': 1.0, 'color': (0.298, 0.686, 0.314)},
-            ]
-            
-            for zone in zones:
-                x_start = 20*mm + scale_width * zone['start']
-                zone_width = scale_width * (zone['end'] - zone['start'])
-                
-                c.setFillColorRGB(*zone['color'])
-                c.rect(x_start, scale_y, zone_width, scale_height, fill=1, stroke=1)
-                
-                # Название зоны
-                c.setFillColorRGB(1, 1, 1)
-                c.setFont(font_bold, 7)
-                c.drawCentredString(x_start + zone_width/2, scale_y + scale_height/2 - 1*mm, 
-                                   zone['name'].replace('\n', ' '))
-            
-            # Маркер текущей позиции
-            marker_x = 20*mm + scale_width * (util / 100)
-            
-            # Треугольник-маркер
-            c.setFillColorRGB(0, 0, 0)
-            c.setStrokeColorRGB(0, 0, 0)
-            
-            # Рисуем стрелку вниз
-            points = [
-                (marker_x, scale_y + scale_height + 5*mm),  # Верх
-                (marker_x - 3*mm, scale_y + scale_height),   # Лево
-                (marker_x + 3*mm, scale_y + scale_height),   # Право
-            ]
-            
-            c.setLineWidth(2)
-            p = c.beginPath()
-            p.moveTo(*points[0])
-            for point in points[1:]:
-                p.lineTo(*point)
-            p.close()
-            c.drawPath(p, fill=1, stroke=1)
-            
-            # Текст "ВЫ ЗДЕСЬ"
-            c.setFont(font_bold, 10)
-            c.drawCentredString(marker_x, scale_y + scale_height + 8*mm, "ВЫ ЗДЕСЬ")
-            c.drawCentredString(marker_x, scale_y - 5*mm, f"{util:.1f}%")
-            
-            y = scale_y - 15*mm
-            
-            # === РЕКОМЕНДАЦИИ ===
-            # Проверка места для блока рекомендаций
-            if y < 50*mm:  # Нужно минимум 50мм для блока
-                c.showPage()
-                y = page_height - 30*mm
-            
-            c.setFillColorRGB(0, 0, 0)
-            c.setFont(font_bold, 12)
-            c.drawString(20*mm, y, "РЕКОМЕНДАЦИИ ПО ОПТИМИЗАЦИИ:")
-            y -= 7*mm
-            
-            # Динамическая высота блока рекомендаций
-            # Считаем сколько нужно места для рекомендаций
-            rec_count = len(analysis['recommendations'][:5])
-            magic_lines = 1 if analysis.get('is_magic') else 0
-            estimated_rec_height = (rec_count * 6 + magic_lines * 6 + 10) * mm
-            
-            # Ограничиваем минимальной высотой
-            rec_height = max(30*mm, min(estimated_rec_height, 45*mm))
-            
-            # Фон для рекомендаций
-            c.setFillColorRGB(1.0, 1.0, 0.93)  # Светло-жёлтый
-            c.rect(20*mm, y - rec_height, 240*mm, rec_height, fill=1, stroke=1)
-            
-            # Текст рекомендаций
-            c.setFillColorRGB(0, 0, 0)
-            c.setFont(font_name, 10)
-            
-            rec_y = y - 5*mm
-            rec_bottom = y - rec_height + 3*mm  # Нижняя граница блока с отступом
-            
-            # Магическое число
-            if analysis.get('is_magic') and rec_y > rec_bottom:
-                c.setFont(font_bold, 11)
-                c.setFillColorRGB(0.827, 0.329, 0.0)  # Оранжевый
-                text = f"[MAGIC] Длина L={dims['L']} - МАГИЧЕСКОЕ ЧИСЛО!"
-                # Укорачиваем если не помещается
-                if len(text) > 65:
-                    text = f"[MAGIC] L={dims['L']} - магическое число!"
-                c.drawString(25*mm, rec_y, text)
-                rec_y -= 6*mm
-            
-            # Рекомендации анализатора (с переносом длинных строк)
-            c.setFont(font_name, 9)  # Уменьшаем шрифт для экономии места
-            c.setFillColorRGB(0, 0, 0)
-            
-            max_rec_width = 80  # Максимальная ширина рекомендации в символах
-            
-            for rec in analysis['recommendations'][:4]:  # Максимум 4 рекомендации (чтобы точно поместились)
-                if rec['type'] == 'success':
-                    c.setFillColorRGB(0.298, 0.686, 0.314)  # Зелёный
-                    icon = "[OK]"
-                elif rec['type'] == 'warning':
-                    c.setFillColorRGB(0.827, 0.329, 0.0)  # Оранжевый
-                    icon = "[!]"
-                else:
-                    c.setFillColorRGB(0.117, 0.565, 0.886)  # Синий
-                    icon = "[i]"
-                
-                # Проверка: хватает ли места в блоке для рекомендации
-                if rec_y <= rec_bottom:
-                    break  # Больше не помещается - прекращаем
-                
-                # Форматируем текст с переносом
-                full_text = f"{icon} {rec['text']}"
-                if len(full_text) > max_rec_width:
-                    # Разбиваем на строки
-                    words = full_text.split()
-                    line = ""
-                    for word in words:
-                        test_line = line + " " + word if line else word
-                        if len(test_line) <= max_rec_width:
-                            line = test_line
-                        else:
-                            if rec_y > rec_bottom:
-                                c.drawString(25*mm, rec_y, line)
-                                rec_y -= 4*mm
-                            line = "  " + word  # Отступ для продолжения
-                    if line and rec_y > rec_bottom:
-                        c.drawString(25*mm, rec_y, line)
-                        rec_y -= 4*mm
-                else:
-                    if rec_y > rec_bottom:
-                        c.drawString(25*mm, rec_y, full_text)
-                        rec_y -= 4*mm
-                
-                c.setFillColorRGB(0, 0, 0)
-            
-            # Если нет рекомендаций
-            if len(analysis['recommendations']) == 0:
-                c.setFillColorRGB(0.298, 0.686, 0.314)
-                c.setFont(font_bold, 11)
-                c.drawString(25*mm, rec_y, "[OK] Габариты оптимальны! Нет рекомендаций по улучшению.")
-            
-            # === СПРАВОЧНАЯ ИНФОРМАЦИЯ ===
-            y = rec_y - 10*mm
-            
-            # Проверка места для справки
-            if y < 40*mm:  # Нужно минимум 40мм для справки
-                c.showPage()
-                y = page_height - 30*mm
-            
-            c.setFillColorRGB(0, 0, 0)
-            c.setFont(font_bold, 11)
-            c.drawString(20*mm, y, "СПРАВКА: МАГИЧЕСКИЕ ДЛИНЫ:")
-            y -= 6*mm
-            
-            c.setFont(font_name, 9)
-            magic_info = [
-                "• L = 1200 мм: 2 детали в ряд, ~90% использования",
-                "• L = 800 мм: 3 детали в ряд, ~88% использования",
-                "• L = 600 мм: 4 детали в ряд, ~87% использования",
-                "• L = 2400 мм: 1 деталь (макс. для гибки), ~85%",
-            ]
-            
-            for info in magic_info:
-                # Проверка места перед каждой строкой
-                if y < MIN_MARGIN:
-                    c.showPage()
-                    y = page_height - 30*mm
-                    c.setFont(font_name, 9)
-                
-                c.drawString(20*mm, y, info)
-                y -= 5*mm
-            
-            y -= 3*mm
-            
-            # Формула (если есть место)
-            if y > MIN_MARGIN + 5*mm:
-                c.setFont(font_name, 8)
-                c.setFillColorRGB(0.5, 0.5, 0.5)
-                c.drawString(20*mm, y, "Формула: L = (2500 - (N-1) × 5) / N")
+            # Весь блок анализа оптимальности удален
+        
+        # === НОВАЯ СТРАНИЦА: РЕКОМЕНДУЕМАЯ РАСКЛАДКА ===
+        c.showPage()
         
         # Сохраняем PDF
         c.save()
+    
     
     def _create_tooltip(self, widget, text):
         """
@@ -2855,102 +2310,156 @@ class EnhancedUnfoldingAreaGUI:
         widget.bind('<Enter>', show_tooltip)
         widget.bind('<Leave>', hide_tooltip)
     
-    def get_ai_recommendations(self):
+    def add_files_to_project(self):
         """
-        v3.0: Получить AI-рекомендации по оптимизации
+        Добавить новые DXF файлы к текущему проекту без сброса прогресса
         """
-        if not self.last_nesting_result:
-            messagebox.showwarning("Нет данных", 
-                                  "Сначала запустите раскрой!")
+        if not self.files_data:
+            messagebox.showwarning("Нет проекта", 
+                                  "Сначала загрузите файлы проекта!")
             return
         
-        if not self.current_dimensions:
-            messagebox.showwarning("Нет габаритов", 
-                                  "Не удалось определить габариты проекта (H, W, L)")
+        # Выбираем файлы для добавления
+        new_files = filedialog.askopenfilenames(
+            title="Выберите DXF файлы для добавления к проекту",
+            filetypes=[("DXF files", "*.dxf"), ("All files", "*.*")],
+            initialdir=Path(self.files_data[0]['filepath']).parent
+        )
+        
+        if not new_files:
             return
         
         try:
-            print(f"[DEBUG AI] Запуск AI-рекомендаций...")
-            print(f"[DEBUG AI] files_data: {len(self.files_data)} файлов")
-            print(f"[DEBUG AI] current_dimensions: {self.current_dimensions}")
-            print(f"[DEBUG AI] nesting_result sheets: {self.last_nesting_result.get('sheets_needed', 'N/A')}")
+            print(f"[DEBUG] Добавляем {len(new_files)} файлов к проекту")
             
-            # Получить рекомендации от AI
-            recommendations = self.ai_engine.get_recommendations(
-                files_data=self.files_data,
-                nesting_result=self.last_nesting_result,
-                project_dimensions=self.current_dimensions
-            )
+            # Сохраняем текущий путь проекта
+            current_project_path = Path(self.files_data[0]['filepath']).parent
+            current_project_name = current_project_path.name
             
-            print(f"[DEBUG AI] Рекомендации получены: {type(recommendations)}")
+            added_count = 0
             
-            # Отобразить в текстовом поле
-            self.ai_recommendations_text.config(state=tk.NORMAL)
-            self.ai_recommendations_text.delete('1.0', tk.END)
+            # Обрабатываем каждый файл отдельно
+            for filepath in new_files:
+                try:
+                    # Создаем временную папку для одного файла
+                    temp_folder = Path(filepath).parent
+                    
+                    # Используем calculator для анализа файла
+                    result = self.calculator.calculate_from_folder(str(temp_folder))
+                    
+                    if result['success']:
+                        # Ищем наш файл в результатах
+                        for file_data in result['files']:
+                            if file_data['filepath'] == filepath:
+                                # Помечаем как дополнительный
+                                file_data['source_folder'] = "Добавленные файлы"
+                                file_data['is_additional'] = True
+                                
+                                # Добавляем в список
+                                self.files_data.append(file_data)
+                                
+                                # Добавляем строку в таблицу
+                                self._add_file_row_to_table(file_data, len(self.files_data) - 1)
+                                added_count += 1
+                                print(f"[DEBUG] Добавлен файл: {Path(filepath).name}")
+                                break
+                    else:
+                        print(f"[WARNING] Не удалось проанализировать: {Path(filepath).name}")
+                        
+                except Exception as e:
+                    print(f"[ERROR] Ошибка анализа файла {filepath}: {e}")
             
-            # Заголовок
-            text = f"🧠 AI-АНАЛИЗ РАСКРОЯ\n"
-            text += "=" * 70 + "\n\n"
+            if added_count == 0:
+                messagebox.showwarning("Нет файлов", 
+                                      "Не удалось проанализировать выбранные файлы!")
+                return
             
-            # Текущий статус
-            current_util = recommendations['current_utilization']
-            status = recommendations['status']
-            text += f"Текущая утилизация: {current_util:.1f}% ({status.upper()})\n\n"
+            # Обновляем итоги
+            self.update_summary()
             
-            # Предупреждения о комплектности
-            if recommendations['completeness']['has_issues']:
-                text += "⚠️ ПРОВЕРКА КОМПЛЕКТНОСТИ:\n"
-                for warning in recommendations['completeness']['warnings']:
-                    part = warning['part_type'].replace('_', ' ').title()
-                    text += f"  • {part}: есть {warning['actual']} шт, "
-                    text += f"нужно {warning['expected']} шт (не хватает {warning['missing']})\n"
-                text += "\n"
             
-            # Рекомендации для ХОРОШО
-            if recommendations['good_level']['has_recommendations']:
-                text += f"💡 ДЛЯ ДОСТИЖЕНИЯ {recommendations['good_level']['target']}:\n"
-                for rec in recommendations['good_level']['recommendations'][:3]:  # первые 3
-                    part = rec['part_type'].replace('_', ' ').title()
-                    w, h = rec['size']
-                    text += f"  • {part} ({w:.0f}×{h:.0f} мм) - {rec['quantity']} шт\n"
-                    text += f"    Откуда: {rec['from_projects']}\n"
-                
-                if recommendations['good_level']['recommendations']:
-                    pred = recommendations['good_level']['recommendations'][0]['predicted_utilization']
-                    text += f"\n  Прогноз утилизации: {pred:.1f}%\n"
-                text += "\n"
+            # Показываем сообщение
+            messagebox.showinfo("✅ Файлы добавлены!",
+                              f"Добавлено {added_count} файлов к проекту\n"
+                              f"Проект: {current_project_name}\n\n"
+                              f"Общее количество файлов: {len(self.files_data)}\n\n"
+                              "Запустите раскрой для обновления результатов")
             
-            # Рекомендации для ОТЛИЧНО
-            if recommendations['excellent_level']['has_recommendations']:
-                text += f"✨ ДЛЯ ДОСТИЖЕНИЯ {recommendations['excellent_level']['target']}:\n"
-                total_details = len(recommendations['excellent_level']['recommendations'])
-                text += f"  Добавить {total_details} типов деталей:\n"
-                
-                for rec in recommendations['excellent_level']['recommendations'][:5]:  # первые 5
-                    part = rec['part_type'].replace('_', ' ').title()
-                    w, h = rec['size']
-                    text += f"  • {part} ({w:.0f}×{h:.0f} мм) - {rec['quantity']} шт\n"
-                
-                if recommendations['excellent_level']['recommendations']:
-                    pred = recommendations['excellent_level']['recommendations'][0]['predicted_utilization']
-                    text += f"\n  Прогноз утилизации: {pred:.1f}%\n"
-                text += "\n"
-            
-            # Итоги
-            text += "─" * 70 + "\n"
-            text += "💡 СОВЕТ: Детали можно найти в проектах с похожими H и W\n"
-            text += "📁 Используйте функцию 'Загрузить файлы' → 'Добавить из другой папки'"
-            
-            self.ai_recommendations_text.insert('1.0', text)
-            self.ai_recommendations_text.config(state=tk.DISABLED)
+            # Автоматически запускаем раскрой если есть предыдущий результат
+            if self.last_nesting_result:
+                print(f"[DEBUG] Автоматически обновляем раскрой после добавления файлов")
+                self._run_smart_nesting_optimization()
             
         except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            print(f"[ERROR AI] Ошибка AI-анализа:")
-            print(error_details)
-            messagebox.showerror("Ошибка AI-анализа", 
-                               f"Не удалось получить рекомендации:\n{e}\n\nПодробности в консоли.")
+            print(f"[ERROR] Ошибка добавления файлов: {e}")
+            messagebox.showerror("Ошибка", 
+                               f"Ошибка добавления файлов:\n{e}")
+    
+    def add_files_from_folder(self):
+        """
+        Добавить все DXF файлы из папки к текущему проекту
+        """
+        if not self.files_data:
+            messagebox.showwarning("Нет проекта", 
+                                  "Сначала загрузите файлы проекта!")
+            return
+        
+        # Выбираем папку
+        folder_path = filedialog.askdirectory(
+            title="Выберите папку с DXF файлами для добавления",
+            initialdir=Path(self.files_data[0]['filepath']).parent
+        )
+        
+        if not folder_path:
+            return
+        
+        try:
+            print(f"[DEBUG] Добавляем файлы из папки: {folder_path}")
+            
+            # Используем существующую логику из calculator
+            result = self.calculator.calculate_from_folder(folder_path)
+            
+            if not result['success']:
+                messagebox.showerror("Ошибка", 
+                                   f"Не удалось загрузить файлы:\n{result.get('error', 'Неизвестная ошибка')}")
+                return
+            
+            added_count = 0
+            folder_name = Path(folder_path).name
+            
+            # Добавляем новые файлы к существующим
+            for file_data in result['files']:
+                # Помечаем, что файл из дополнительной папки
+                file_data['source_folder'] = folder_name
+                file_data['is_additional'] = True
+                
+                # Добавляем в список
+                self.files_data.append(file_data)
+                
+                # Добавляем строку в таблицу
+                self._add_file_row_to_table(file_data, len(self.files_data) - 1)
+                added_count += 1
+            
+            # Обновляем итоги
+            self.update_summary()
+            
+            
+            # Показываем сообщение
+            messagebox.showinfo("✅ Файлы добавлены!",
+                              f"Добавлено {added_count} файлов из папки\n"
+                              f"Папка: {folder_name}\n\n"
+                              f"Общее количество файлов: {len(self.files_data)}\n\n"
+                              "Запустите раскрой для обновления результатов")
+            
+            # Автоматически запускаем раскрой если есть предыдущий результат
+            if self.last_nesting_result:
+                print(f"[DEBUG] Автоматически обновляем раскрой после добавления файлов из папки")
+                self._run_smart_nesting_optimization()
+            
+        except Exception as e:
+            print(f"[ERROR] Ошибка добавления файлов из папки: {e}")
+            messagebox.showerror("Ошибка", 
+                               f"Ошибка добавления файлов:\n{e}")
     
     def scan_projects_database(self):
         """
@@ -3051,6 +2560,307 @@ class EnhancedUnfoldingAreaGUI:
                                f"Ошибка сканирования:\n{e}",
                                parent=progress_window)
             progress_window.destroy()
+    
+    def expand_window_for_table(self):
+        """Адаптивно расширить окно при заполнении таблицы"""
+        if not self.window_expanded:
+            # Получаем текущий размер окна
+            current_width = self.root.winfo_width()
+            current_height = self.root.winfo_height()
+            
+            # Расширяем окно для комфортного просмотра таблицы
+            new_width = max(1200, current_width + 200)
+            new_height = max(700, current_height + 100)
+            
+            # Ограничиваем максимальный размер экраном
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            new_width = min(new_width, int(screen_width * 0.9))
+            new_height = min(new_height, int(screen_height * 0.9))
+            
+            # Применяем новый размер
+            self.root.geometry(f"{new_width}x{new_height}")
+            self.window_expanded = True
+            print(f"[DEBUG] Окно расширено до {new_width}x{new_height}")
+    
+    def analyze_cutting_readiness(self):
+        """Анализ готовности DXF файлов к лазерной резке"""
+        try:
+            from components.dxf_cutting_readiness_analyzer import DXFCuttingReadinessAnalyzer
+            
+            analyzer = DXFCuttingReadinessAnalyzer()
+            
+            # Собираем пути к DXF файлам
+            dxf_files = []
+            for file_data in self.files_data:
+                if file_data.get('filepath') and file_data['filepath'].endswith('.dxf'):
+                    dxf_files.append(file_data['filepath'])
+            
+            if not dxf_files:
+                print("[DEBUG] Нет DXF файлов для анализа готовности к резке")
+                return
+            
+            # Анализируем файлы
+            reports = analyzer.analyze_multiple_files(dxf_files)
+            summary = analyzer.get_summary_report(reports)
+            
+            # Показываем результаты
+            self._show_cutting_readiness_results(reports, summary)
+            
+        except Exception as e:
+            print(f"[DEBUG] Ошибка анализа готовности к резке: {e}")
+    
+    def _show_cutting_readiness_results(self, reports, summary):
+        """Показать результаты анализа готовности к резке"""
+        try:
+            # Создаем окно с результатами
+            results_window = tk.Toplevel(self.root)
+            results_window.title("Анализ готовности к лазерной резке")
+            results_window.geometry("800x600")
+            results_window.transient(self.root)
+            results_window.grab_set()
+            
+            # Заголовок
+            title_frame = ttk.Frame(results_window)
+            title_frame.pack(fill=tk.X, padx=10, pady=10)
+            
+            readiness_percent = summary['readiness_percentage']
+            if readiness_percent >= 90:
+                status_color = '#4CAF50'  # Зеленый
+                status_icon = "✅"
+                status_text = "ГОТОВ К РЕЗКЕ"
+            elif readiness_percent >= 70:
+                status_color = '#FF9800'  # Оранжевый
+                status_icon = "⚠️"
+                status_text = "ТРЕБУЕТ ДОРАБОТКИ"
+            else:
+                status_color = '#F44336'  # Красный
+                status_icon = "❌"
+                status_text = "НЕ ГОТОВ К РЕЗКЕ"
+            
+            ttk.Label(title_frame, text=f"{status_icon} {status_text}", 
+                     font=('Arial', 14, 'bold'), foreground=status_color).pack()
+            
+            # Статистика
+            stats_text = f"Готовность: {readiness_percent:.1f}% ({summary['ready_files']}/{summary['total_files']} файлов)"
+            if summary['total_issues'] > 0:
+                stats_text += f" | Проблем: {summary['total_issues']}"
+            
+            ttk.Label(title_frame, text=stats_text, font=('Arial', 10)).pack()
+            
+            # Создаем единую страницу с прокруткой
+            main_frame = ttk.Frame(results_window)
+            main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            # Создаем Canvas с прокруткой
+            canvas = tk.Canvas(main_frame, bg='white')
+            scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+            scrollable_frame = ttk.Frame(canvas)
+            
+            scrollable_frame.bind(
+                "<Configure>",
+                lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            )
+            
+            canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+            canvas.configure(yscrollcommand=scrollbar.set)
+            
+            canvas.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
+            
+            # Сводка
+            summary_frame = ttk.LabelFrame(scrollable_frame, text="📊 Сводка", padding="10")
+            summary_frame.pack(fill=tk.X, pady=(0, 10))
+            
+            summary_content = f"Всего файлов: {summary['total_files']}\n"
+            summary_content += f"Готовых к резке: {summary['ready_files']}\n"
+            summary_content += f"Требуют доработки: {summary['not_ready_files']}\n"
+            summary_content += f"Общая готовность: {readiness_percent:.1f}%\n\n"
+            
+            if summary['total_issues'] > 0:
+                summary_content += "ОБНАРУЖЕННЫЕ ПРОБЛЕМЫ:\n"
+                for issue_type, count in summary['issue_types'].items():
+                    summary_content += f"  - {issue_type}: {count} случаев\n"
+                
+                summary_content += "\nРЕКОМЕНДАЦИИ:\n"
+                for rec in summary['recommendations']:
+                    summary_content += f"  - {rec}\n"
+            else:
+                summary_content += "Все файлы готовы к лазерной резке!\n"
+            
+            summary_text = tk.Text(summary_frame, wrap=tk.WORD, font=('Arial', 9), height=6)
+            summary_text.pack(fill=tk.X)
+            summary_text.insert('1.0', summary_content)
+            summary_text.config(state=tk.DISABLED)
+            
+            # Таблица файлов
+            table_frame = ttk.LabelFrame(scrollable_frame, text="📋 Таблица файлов", padding="10")
+            table_frame.pack(fill=tk.X, pady=(0, 10))
+            
+            # Создаем таблицу с результатами
+            table_container = ttk.Frame(table_frame)
+            table_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            
+            # Заголовки таблицы
+            headers = ["Файл", "Статус", "Готовность", "Сущностей", "Проблем", "Проблемы"]
+            
+            # Создаем заголовки с цветным фоном
+            for col, header in enumerate(headers):
+                header_frame = ttk.Frame(table_container)
+                header_frame.grid(row=0, column=col, padx=1, pady=1, sticky='ew')
+                header_frame.configure(relief='raised', borderwidth=1)
+                
+                label = ttk.Label(header_frame, text=header, font=('Arial', 9, 'bold'))
+                label.pack(fill=tk.BOTH, expand=True, padx=3, pady=2)
+            
+            # Настраиваем веса колонок
+            table_container.grid_columnconfigure(0, weight=2)  # Файл - шире
+            table_container.grid_columnconfigure(1, weight=1)  # Статус
+            table_container.grid_columnconfigure(2, weight=1)  # Готовность
+            table_container.grid_columnconfigure(3, weight=1)  # Сущностей
+            table_container.grid_columnconfigure(4, weight=1)  # Проблем
+            table_container.grid_columnconfigure(5, weight=3)  # Проблемы - шире
+            
+            # Заполняем таблицу данными
+            for row, report in enumerate(reports, 1):
+                # Статус с иконкой
+                if report.is_ready:
+                    status_text = "✅ ГОТОВ"
+                    status_color = '#4CAF50'
+                elif report.readiness_score >= 70:
+                    status_text = "⚠️ ДОРАБОТКА"
+                    status_color = '#FF9800'
+                else:
+                    status_text = "❌ НЕ ГОТОВ"
+                    status_color = '#F44336'
+                
+                # Имя файла (сокращенное)
+                filename_short = report.filename[:30] + "..." if len(report.filename) > 30 else report.filename
+                
+                # Готовность
+                readiness_text = f"{report.readiness_score:.1f}%"
+                
+                # Количество сущностей
+                entities_text = str(report.total_entities)
+                
+                # Количество проблем
+                problems_count = len(report.issues)
+                problems_text = str(problems_count)
+                
+                # Краткое описание проблем
+                if report.issues:
+                    issue_types = {}
+                    for issue in report.issues:
+                        issue_type = issue.type
+                        if issue_type not in issue_types:
+                            issue_types[issue_type] = 0
+                        issue_types[issue_type] += 1
+                    
+                    problems_desc = ", ".join([f"{issue_type}({count})" for issue_type, count in issue_types.items()])
+                    if len(problems_desc) > 40:
+                        problems_desc = problems_desc[:37] + "..."
+                else:
+                    problems_desc = "Нет проблем"
+                
+                # Создаем ячейки с цветовой индикацией
+                # Файл
+                file_frame = ttk.Frame(table_container)
+                file_frame.grid(row=row, column=0, padx=1, pady=1, sticky='ew')
+                file_label = ttk.Label(file_frame, text=filename_short, font=('Arial', 8))
+                file_label.pack(fill=tk.BOTH, expand=True, padx=3, pady=2)
+                
+                # Статус с цветом
+                status_frame = ttk.Frame(table_container)
+                status_frame.grid(row=row, column=1, padx=1, pady=1, sticky='ew')
+                status_label = ttk.Label(status_frame, text=status_text, font=('Arial', 8, 'bold'))
+                status_label.pack(fill=tk.BOTH, expand=True, padx=3, pady=2)
+                status_label.configure(foreground=status_color)
+                
+                # Готовность с цветом фона
+                readiness_frame = ttk.Frame(table_container)
+                readiness_frame.grid(row=row, column=2, padx=1, pady=1, sticky='ew')
+                readiness_label = ttk.Label(readiness_frame, text=readiness_text, font=('Arial', 8, 'bold'))
+                readiness_label.pack(fill=tk.BOTH, expand=True, padx=3, pady=2)
+                
+                # Цвет фона в зависимости от готовности
+                if report.readiness_score >= 90:
+                    bg_color = '#E8F5E9'  # Светло-зеленый
+                elif report.readiness_score >= 70:
+                    bg_color = '#FFF3E0'  # Светло-оранжевый
+                else:
+                    bg_color = '#FFEBEE'  # Светло-красный
+                
+                readiness_label.configure(background=bg_color)
+                
+                # Сущности
+                entities_frame = ttk.Frame(table_container)
+                entities_frame.grid(row=row, column=3, padx=1, pady=1, sticky='ew')
+                entities_label = ttk.Label(entities_frame, text=entities_text, font=('Arial', 8))
+                entities_label.pack(fill=tk.BOTH, expand=True, padx=3, pady=2)
+                
+                # Проблемы
+                problems_frame = ttk.Frame(table_container)
+                problems_frame.grid(row=row, column=4, padx=1, pady=1, sticky='ew')
+                problems_label = ttk.Label(problems_frame, text=problems_text, font=('Arial', 8, 'bold'))
+                problems_label.pack(fill=tk.BOTH, expand=True, padx=3, pady=2)
+                
+                # Цвет текста в зависимости от количества проблем
+                if problems_count == 0:
+                    problems_color = '#4CAF50'  # Зеленый
+                elif problems_count <= 2:
+                    problems_color = '#FF9800'  # Оранжевый
+                else:
+                    problems_color = '#F44336'  # Красный
+                
+                problems_label.configure(foreground=problems_color)
+                
+                # Описание проблем
+                desc_frame = ttk.Frame(table_container)
+                desc_frame.grid(row=row, column=5, padx=1, pady=1, sticky='ew')
+                desc_label = ttk.Label(desc_frame, text=problems_desc, font=('Arial', 8))
+                desc_label.pack(fill=tk.BOTH, expand=True, padx=3, pady=2)
+            
+            # Детальные проблемы
+            details_frame = ttk.LabelFrame(scrollable_frame, text="🔍 Подробные проблемы", padding="10")
+            details_frame.pack(fill=tk.X, pady=(0, 10))
+            
+            details_content = "ДЕТАЛЬНЫЙ АНАЛИЗ ПРОБЛЕМ\n"
+            details_content += "=" * 50 + "\n\n"
+            
+            for report in reports:
+                if report.issues:  # Показываем только файлы с проблемами
+                    status_icon = "OK" if report.is_ready else "ERROR"
+                    details_content += f"{status_icon} {report.filename}\n"
+                    details_content += f"   Готовность: {report.readiness_score:.1f}%\n"
+                    details_content += f"   Сущностей: {report.total_entities}\n"
+                    details_content += f"   Проблемных: {report.problematic_entities}\n"
+                    
+                    details_content += "   Проблемы:\n"
+                    for issue in report.issues:
+                        severity_icon = "ERROR" if issue.severity == 'error' else "WARNING" if issue.severity == 'warning' else "INFO"
+                        details_content += f"     {severity_icon} {issue.description}\n"
+                        details_content += f"       -> {issue.recommendation}\n"
+                    
+                    details_content += "\n"
+            
+            if not any(report.issues for report in reports):
+                details_content += "Все файлы готовы к лазерной резке!\n"
+            
+            details_text = tk.Text(details_frame, wrap=tk.WORD, font=('Arial', 9), height=8)
+            details_text.pack(fill=tk.X)
+            details_text.insert('1.0', details_content)
+            details_text.config(state=tk.DISABLED)
+            
+            # Кнопка закрытия
+            button_frame = ttk.Frame(results_window)
+            button_frame.pack(fill=tk.X, padx=10, pady=10)
+            
+            ttk.Button(button_frame, text="Закрыть", 
+                      command=results_window.destroy).pack(side=tk.RIGHT)
+            
+        except Exception as e:
+            print(f"[DEBUG] Ошибка показа результатов анализа: {e}")
+            messagebox.showerror("Ошибка", f"Не удалось показать результаты анализа:\n{e}")
     
     def run(self):
         """Запуск приложения"""
