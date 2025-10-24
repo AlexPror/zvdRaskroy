@@ -49,6 +49,9 @@ class SheetNestingOptimizer:
             'total_used_area_mm2': 0.0,
             'total_scrap_area_mm2': 0.0,
             'utilization_percent': 0.0,
+            'total_cut_length_mm': 0.0,  # Общая длина реза
+            'total_contours': 0,  # Количество контуров
+            'cutting_time_minutes': 0.0,  # Время резки в минутах
             'sheets': [],
             'scraps': [],
             'reusable_scraps': [],
@@ -208,6 +211,11 @@ class SheetNestingOptimizer:
                 else:
                     result['unusable_scraps'].append(scrap_info)
         
+        # Расчет параметров резки
+        result['total_cut_length_mm'] = self._calculate_total_cut_length(parts_to_place)
+        result['total_contours'] = len(parts_to_place)
+        result['cutting_time_minutes'] = self._calculate_cutting_time(result['total_cut_length_mm'])
+        
         result['success'] = True
         
         # Логи
@@ -216,6 +224,9 @@ class SheetNestingOptimizer:
         self.logger.info(f"{'='*70}")
         self.logger.info(f"Листов требуется: {result['sheets_needed']}")
         self.logger.info(f"Использование материала: {result['utilization_percent']:.1f}%")
+        self.logger.info(f"Общая длина реза: {result['total_cut_length_mm']/1000:.1f} м")
+        self.logger.info(f"Количество контуров: {result['total_contours']}")
+        self.logger.info(f"Время резки: {result['cutting_time_minutes']:.1f} мин")
         self.logger.info(f"Обрезков: {len(result['scraps'])}")
         self.logger.info(f"  - Пригодных для переиспользования: {len(result['reusable_scraps'])}")
         self.logger.info(f"  - Непригодных (мелкие): {len(result['unusable_scraps'])}")
@@ -325,6 +336,9 @@ class SheetNestingOptimizer:
                 ['Площадь листа', f"{self.SHEET_AREA/1_000_000:.3f} м²"],
                 ['Общая площадь деталей', f"{nesting_data['total_parts_area_mm2']/1_000_000:.4f} м²"],
                 ['Использование материала', f"{nesting_data['utilization_percent']:.1f}%"],
+                ['Общая длина реза', f"{nesting_data['total_cut_length_mm']/1000:.1f} м"],
+                ['Количество контуров', f"{nesting_data['total_contours']} шт"],
+                ['Время резки', f"{nesting_data['cutting_time_minutes']:.1f} мин"],
                 ['Обрезков всего', f"{len(nesting_data['scraps'])} шт"],
                 ['Обрезков пригодных', f"{len(nesting_data['reusable_scraps'])} шт"],
             ]
@@ -508,7 +522,48 @@ class SheetNestingOptimizer:
             self.logger.error(traceback.format_exc())
         
         return result
-
+    
+    def _calculate_total_cut_length(self, parts: List[Dict]) -> float:
+        """
+        Расчет общей длины реза для всех деталей
+        
+        Args:
+            parts: Список деталей с размерами
+            
+        Returns:
+            float: Общая длина реза в мм
+        """
+        total_length = 0.0
+        
+        for part in parts:
+            # Для прямоугольных деталей: периметр = 2 * (ширина + высота)
+            perimeter = 2 * (part['width'] + part['height'])
+            total_length += perimeter
+        
+        return total_length
+    
+    def _calculate_cutting_time(self, cut_length_mm: float) -> float:
+        """
+        Расчет времени резки
+        
+        Args:
+            cut_length_mm: Общая длина реза в мм
+            
+        Returns:
+            float: Время резки в минутах
+        """
+        # Скорость резки лазером: ~2-5 м/мин (зависит от толщины металла)
+        # Используем среднюю скорость 3 м/мин = 3000 мм/мин
+        CUTTING_SPEED_MM_PER_MIN = 3000.0
+        
+        # Время = длина / скорость
+        cutting_time = cut_length_mm / CUTTING_SPEED_MM_PER_MIN
+        
+        # Добавляем время на позиционирование (примерно 10% от времени резки)
+        positioning_time = cutting_time * 0.1
+        
+        return cutting_time + positioning_time
+    
 
 if __name__ == "__main__":
     # Тестирование

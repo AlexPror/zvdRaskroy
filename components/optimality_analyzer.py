@@ -229,149 +229,79 @@ class OptimalityAnalyzer:
     def analyze_project_dimensions(self, L: float, H: float, W: float, 
                                    parts_data: List[Dict] = None) -> Dict:
         """
-        Полный анализ габаритов проекта С УЧЁТОМ СОСТАВА ДЕТАЛЕЙ
+        ПРОСТОЙ АНАЛИЗ ОПТИМАЛЬНОСТИ НА ОСНОВЕ РЕАЛЬНЫХ ФАКТОВ
         
         Args:
             L: Длина конвектора (мм)
             H: Высота конвектора (мм)
             W: Ширина конвектора (мм)
-            parts_data: Данные о деталях (ВАЖНО!)
+            parts_data: Данные о деталях
         
         Returns:
-            Детальный анализ оптимальности
+            Простой анализ на основе реальных фактов заполнения листа
         """
         
-        # НОВОЕ: Анализируем состав проекта
-        composition = self.analyze_parts_composition(parts_data, L, H) if parts_data else None
+        # РЕАЛЬНЫЕ ФАКТЫ: Анализируем фактическое заполнение листа
+        real_facts = self._analyze_real_sheet_utilization(L, H, parts_data)
         
-        # Рассчитываем для корпуса
-        corpus_result = self.calculate_corpus_utilization(L, H)
-        
-        # Проверяем на магическое число С УЧЁТОМ СОСТАВА
-        is_magic, magic_info = self.is_near_magic(L, composition)
-        
-        # Рекомендация по улучшению С УЧЁТОМ СОСТАВА
+        # Простые рекомендации на основе фактов
         recommendations = []
         
-        # НОВОЕ: Добавляем информацию о составе проекта
-        if composition and composition['has_composition_data']:
+        # Факт 1: Сколько площади занято
+        if real_facts['occupied_area_m2'] > 0:
             recommendations.append({
                 'type': 'info',
-                'text': f"Состав: {composition['large_parts_count']} крупн. + {composition['small_parts_count']} мелк. деталей"
+                'text': f"Занято площади: {real_facts['occupied_area_m2']:.2f} м²"
             })
-            
-            if composition['is_combo_suitable']:
-                recommendations.append({
-                    'type': 'success',
-                    'text': f"Проект подходит для комбинированного раскроя ({composition['small_parts_count']} мелких)"
-                })
         
-        if is_magic:
-            magic_type = magic_info.get('type', 'classic')
-            if magic_type == 'classic':
-                recommendations.append({
-                    'type': 'success',
-                    'text': f"Отлично! L={L:.0f} - КЛАССИЧЕСКОЕ магическое число (L={magic_info['L']} мм)"
-                })
-            else:  # combo
-                recommendations.append({
-                    'type': 'success',
-                    'text': f"Отлично! L={L:.0f} - КОМБИНИРОВАННОЕ оптимальное (L={magic_info['L']} мм с мелкими)"
-                })
-                if composition:
-                    min_req = magic_info.get('min_small_parts', 0)
-                    actual = composition['small_parts_count']
-                    recommendations.append({
-                        'type': 'info',
-                        'text': f"Мелких деталей: {actual} (требуется минимум {min_req})"
-                    })
-        else:
-            # Находим ближайшее магическое
-            # Сначала классические
-            closest_classic = min(self.MAGIC_LENGTHS_CLASSIC, 
-                                key=lambda m: abs(m['L'] - L))
-            
-            # Если есть мелкие детали, ищем комбинированные
-            closest_combo = None
-            if composition and composition['is_combo_suitable']:
-                suitable_combos = [m for m in self.MAGIC_LENGTHS_COMBO 
-                                 if composition['small_parts_count'] >= m.get('min_small_parts', 0)]
-                if suitable_combos:
-                    closest_combo = min(suitable_combos, key=lambda m: abs(m['L'] - L))
-            
-            # Выбираем ближайшее
-            if closest_combo and abs(L - closest_combo['L']) < abs(L - closest_classic['L']):
-                closest_magic = closest_combo
-                magic_type_str = "комбинированное"
-            else:
-                closest_magic = closest_classic
-                magic_type_str = "классическое магическое"
-            
-            if corpus_result['category'] in ['poor', 'medium']:
-                recommendations.append({
-                    'type': 'warning',
-                    'text': f"Рекомендуем изменить L={L:.0f} на {magic_type_str} L={closest_magic['L']} мм"
-                })
-                diff = abs(closest_magic['L'] - L)
-                recommendations.append({
-                    'type': 'info',
-                    'text': f"Изменение: {'+' if L < closest_magic['L'] else '-'}{diff:.0f} мм"
-                })
-        
-        # Проверка высоты
-        if H > 150:
-            recommendations.append({
-                'type': 'info',
-                'text': f"Высота H={H:.0f} довольно большая - меньше деталей в высоту"
-            })
-        elif H < 80:
+        # Факт 2: Сколько площади свободно
+        if real_facts['free_area_m2'] > 0:
             recommendations.append({
                 'type': 'success',
-                'text': f"Высота H={H:.0f} компактная - больше деталей на лист"
+                'text': f"Свободно площади: {real_facts['free_area_m2']:.2f} м²"
             })
-        
-        # Проверка ширины
-        if W > 400:
-            recommendations.append({
-                'type': 'warning',
-                'text': f"Ширина W={W:.0f} большая - много мелких деталей"
-            })
-        
-        # Анализ с учетом деталей
-        if parts_data:
-            total_area = sum(p.get('area_m2', 0) * p.get('quantity', 1) 
-                           for p in parts_data)
             
-            sheets_needed = math.ceil(total_area / self.SHEET_AREA)
-            actual_utilization = (total_area / (sheets_needed * self.SHEET_AREA)) * 100
-            
-            # Сравниваем теоретическое и фактическое
-            theoretical_util = corpus_result['utilization']
-            diff = actual_utilization - theoretical_util
-            
-            if diff < -15:
+            # Факт 3: Что можно добавить в свободное место
+            if real_facts['can_add_large_parts'] > 0:
                 recommendations.append({
-                    'type': 'warning',
-                    'text': f"Фактическое использование ({actual_utilization:.1f}%) ниже теоретического на {abs(diff):.1f}%"
+                    'type': 'success',
+                    'text': f"Можно добавить {real_facts['can_add_large_parts']} крупных деталей"
                 })
+            
+            if real_facts['can_add_small_parts'] > 0:
                 recommendations.append({
                     'type': 'info',
-                    'text': "Возможно, много нестандартных деталей или неоптимальный раскрой"
+                    'text': f"Можно добавить {real_facts['can_add_small_parts']} мелких деталей"
                 })
-        else:
-            actual_utilization = corpus_result['utilization']
+        
+        # Факт 4: Процент использования
+        utilization_percent = real_facts['utilization_percent']
+        recommendations.append({
+            'type': 'info',
+            'text': f"Использование листа: {utilization_percent:.1f}%"
+        })
+        
+        # Факт 5: Сколько листов нужно
+        if real_facts['sheets_needed'] > 0:
+            recommendations.append({
+                'type': 'info',
+                'text': f"Требуется листов: {real_facts['sheets_needed']} шт"
+            })
+        
+        # Факт 6: Экономия материала
+        if real_facts['waste_area_m2'] > 0:
+            recommendations.append({
+                'type': 'warning',
+                'text': f"Обрезки: {real_facts['waste_area_m2']:.2f} м²"
+            })
         
         return {
             'dimensions': {'L': L, 'H': H, 'W': W},
-            'corpus_analysis': corpus_result,
-            'composition': composition,  # НОВОЕ: Информация о составе
-            'is_magic': is_magic,
-            'magic_info': magic_info if is_magic else closest_magic,
-            'magic_type': magic_info.get('type', 'unknown') if is_magic else None,  # НОВОЕ: Тип магического
+            'real_facts': real_facts,
             'recommendations': recommendations,
-            'actual_utilization': actual_utilization,
-            'zone': self._get_zone_name(actual_utilization),
-            'zone_color': self._get_zone_color(actual_utilization)
+            'actual_utilization': utilization_percent,
+            'zone': self._get_zone_name(utilization_percent),
+            'zone_color': self._get_zone_color(utilization_percent)
         }
     
     def _get_zone_name(self, utilization: float) -> str:
@@ -397,23 +327,29 @@ class OptimalityAnalyzer:
             return "#F44336"  # Красный
     
     def get_summary_text(self, analysis: Dict) -> str:
-        """Получить текстовое резюме анализа"""
+        """Получить текстовое резюме анализа на основе реальных фактов"""
         
-        result = analysis['corpus_analysis']
         dims = analysis['dimensions']
+        facts = analysis.get('real_facts', {})
         
         text = f"ГАБАРИТЫ: H={dims['H']:.0f} W={dims['W']:.0f} L={dims['L']:.0f} мм\n"
         text += f"ЗОНА: {analysis['zone']}\n"
-        text += f"Использование: {analysis['actual_utilization']:.1f}% | "
-        text += f"Обрезки: {100 - analysis['actual_utilization']:.1f}%\n"
+        text += f"Использование: {analysis['actual_utilization']:.1f}%\n"
         
-        if analysis['is_magic']:
-            text += f"[MAGIC] Близко к магическому числу!\n"
-        
-        if result['split_parts'] > 1:
-            text += f"Корпус делится на {result['split_parts']} части по {result['part_length']:.0f} мм\n"
-        
-        text += f"Деталей корпуса на лист: {result['parts_per_sheet']} шт\n"
+        # РЕАЛЬНЫЕ ФАКТЫ
+        if facts:
+            text += f"Занято площади: {facts['occupied_area_m2']:.2f} м²\n"
+            text += f"Свободно площади: {facts['free_area_m2']:.2f} м²\n"
+            text += f"Обрезки: {facts['waste_area_m2']:.2f} м²\n"
+            
+            if facts.get('max_corpus_per_sheet', 0) > 0:
+                text += f"Корпусов на лист: {facts['max_corpus_per_sheet']} шт\n"
+            
+            if facts.get('can_add_large_parts', 0) > 0:
+                text += f"Можно добавить крупных: {facts['can_add_large_parts']} шт\n"
+            
+            if facts.get('can_add_small_parts', 0) > 0:
+                text += f"Можно добавить мелких: {facts['can_add_small_parts']} шт\n"
         
         return text
     
@@ -427,6 +363,151 @@ class OptimalityAnalyzer:
         bar = "█" * filled + "░" * empty
         
         return f"[{bar}] {utilization:.1f}%"
+    
+    def _analyze_real_sheet_utilization(self, L: float, H: float, parts_data: List[Dict] = None) -> Dict:
+        """
+        АНАЛИЗ РЕАЛЬНОГО ЗАПОЛНЕНИЯ ЛИСТА НА ОСНОВЕ ФАКТОВ
+        
+        Args:
+            L: Длина корпуса (мм)
+            H: Высота корпуса (мм)
+            parts_data: Данные о деталях
+        
+        Returns:
+            Реальные факты о заполнении листа
+        """
+        
+        # ФАКТ 1: Сколько корпусов помещается на лист
+        n_x = int(self.SHEET_WIDTH / (L + self.CUT_GAP))
+        n_y = int(self.SHEET_HEIGHT / (H + self.CUT_GAP))
+        max_corpus_per_sheet = n_x * n_y
+        
+        if max_corpus_per_sheet == 0:
+            return {
+                'occupied_area_m2': 0,
+                'free_area_m2': self.SHEET_AREA,
+                'utilization_percent': 0,
+                'sheets_needed': 0,
+                'waste_area_m2': self.SHEET_AREA,
+                'can_add_large_parts': 0,
+                'can_add_small_parts': 0
+            }
+        
+        # ФАКТ 2: Площадь одного корпуса
+        corpus_area = (L * H) / 1_000_000  # м²
+        
+        # ФАКТ 3: Площадь, занятая корпусами на листе
+        occupied_area = max_corpus_per_sheet * corpus_area
+        
+        # ФАКТ 4: Свободная площадь на листе
+        free_area = self.SHEET_AREA - occupied_area
+        
+        # ФАКТ 5: Процент использования
+        utilization_percent = (occupied_area / self.SHEET_AREA) * 100
+        
+        # ФАКТ 6: Анализ деталей (если есть данные)
+        can_add_large_parts = 0
+        can_add_small_parts = 0
+        
+        if parts_data:
+            # Считаем общую площадь всех деталей
+            total_parts_area = sum(p.get('area_m2', 0) * p.get('quantity', 1) 
+                            for p in parts_data)
+            
+            # Сколько листов нужно для всех деталей
+            sheets_needed = math.ceil(total_parts_area / self.SHEET_AREA)
+            
+            # Анализируем, что можно добавить в свободное место
+            for part in parts_data:
+                part_area = part.get('area_m2', 0)
+                if part_area > 0:
+                    # Крупная деталь: больше 0.1 м²
+                    if part_area > 0.1 and part_area <= free_area:
+                        can_add_large_parts += 1
+                    # Мелкая деталь: меньше 0.1 м²
+                    elif part_area <= 0.1 and part_area <= free_area * 0.5:
+                        can_add_small_parts += 1
+        else:
+            sheets_needed = 1
+        
+        # ФАКТ 7: Обрезки (неиспользуемая площадь)
+        waste_area = free_area
+        
+        return {
+            'occupied_area_m2': occupied_area,
+            'free_area_m2': free_area,
+            'utilization_percent': utilization_percent,
+            'sheets_needed': sheets_needed,
+            'waste_area_m2': waste_area,
+            'can_add_large_parts': can_add_large_parts,
+            'can_add_small_parts': can_add_small_parts,
+            'max_corpus_per_sheet': max_corpus_per_sheet
+        }
+    
+    def _calculate_remaining_areas(self, L: float, H: float, composition: Dict = None) -> Dict:
+        """
+        Анализ оставшихся областей на листах и рекомендации по их заполнению
+        
+        Args:
+            L: Длина корпуса
+            H: Высота корпуса  
+            composition: Состав проекта
+            
+        Returns:
+            Рекомендации по заполнению областей
+        """
+        # Рассчитываем, сколько корпусов помещается на лист
+        n_x = int(self.SHEET_WIDTH / (L + self.CUT_GAP))
+        n_y = int(self.SHEET_HEIGHT / (H + self.CUT_GAP))
+        max_corpus_per_sheet = n_x * n_y
+        
+        # Площадь одного корпуса
+        corpus_area = (L * H) / 1_000_000  # м²
+        
+        # Оставшаяся площадь на листе
+        used_area = max_corpus_per_sheet * corpus_area
+        remaining_area = self.SHEET_AREA - used_area
+        
+        # Анализируем, что можно разместить в оставшихся областях
+        large_areas = 0
+        small_areas = 0
+        suggested_parts = []
+        
+        # Если есть информация о составе проекта
+        if composition and composition.get('has_composition_data'):
+            # Анализируем мелкие детали из проекта
+            small_parts = composition.get('small_parts', [])
+            
+            # Считаем, сколько мелких деталей можно добавить
+            for part in small_parts:
+                part_area = part['area']
+                if part_area <= remaining_area * 0.1:  # Деталь занимает < 10% оставшейся площади
+                    small_areas += 1
+                    suggested_parts.append(part['name'][:20])  # Сокращаем название
+            
+            # Если есть крупные детали, которые могут поместиться
+            large_parts = composition.get('large_parts', [])
+            for part in large_parts:
+                part_area = part['area']
+                if part_area <= remaining_area * 0.3:  # Деталь занимает < 30% оставшейся площади
+                    large_areas += 1
+                    suggested_parts.append(part['name'][:20])
+        else:
+            # Общие рекомендации без анализа состава
+            if remaining_area > 0.5:  # Больше 0.5 м² свободно
+                large_areas = 1
+                suggested_parts.append("крупные детали")
+            
+            if remaining_area > 0.1:  # Больше 0.1 м² свободно
+                small_areas = 3
+                suggested_parts.append("мелкие детали")
+        
+        return {
+            'remaining_area_m2': remaining_area,
+            'large_areas': large_areas,
+            'small_areas': small_areas,
+            'suggested_parts': suggested_parts[:5]  # Максимум 5 предложений
+        }
 
 # Глобальный экземпляр
 analyzer = OptimalityAnalyzer()

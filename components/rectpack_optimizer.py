@@ -6,6 +6,7 @@
 """
 
 import logging
+import os
 from typing import Dict, List, Tuple
 
 try:
@@ -169,6 +170,8 @@ class RectpackOptimizer:
                         'y': rect.y + self.EDGE_MARGIN,
                         'width': int(part_info['original_width']),
                         'height': int(part_info['original_height']),
+                        'real_width': int(part_info['original_width']),  # Реальные размеры без зазоров
+                        'real_height': int(part_info['original_height']),  # Реальные размеры без зазоров
                         'rotated': rotated,
                         'instance': part_info['instance'],
                         'total_quantity': part_info['total_quantity'],
@@ -191,6 +194,11 @@ class RectpackOptimizer:
             overall_waste_percent = (total_waste_area_m2 / total_sheet_area_m2) * 100 if total_sheet_area_m2 > 0 else 0
             utilization_percent = (total_used_area_m2 / total_sheet_area_m2) * 100 if total_sheet_area_m2 > 0 else 0
             
+            # Расчет параметров резки
+            total_cut_length = self._calculate_total_cut_length(parts_data)
+            total_contours = self._calculate_total_contours(parts_data)
+            cutting_time = self._calculate_cutting_time(total_cut_length)
+            
             result = {
                 'success': True,
                 'sheets_needed': sheets_needed,
@@ -198,7 +206,10 @@ class RectpackOptimizer:
                 'total_used_area_m2': total_used_area_m2,
                 'total_waste_area_m2': total_waste_area_m2,
                 'overall_waste_percent': overall_waste_percent,
-                'utilization_percent': utilization_percent
+                'utilization_percent': utilization_percent,
+                'total_cut_length_mm': total_cut_length,
+                'total_contours': total_contours,
+                'cutting_time_minutes': cutting_time
             }
             
             # Логируем результаты
@@ -271,6 +282,128 @@ class RectpackOptimizer:
                 'improvement_percent': 0,
                 'improvement_description': "Rectpack недоступен"
             }
+    
+    def _calculate_total_cut_length(self, parts_data: List[Dict]) -> float:
+        """Расчет общей длины реза для всех деталей с учетом всех контуров"""
+        total_length = 0.0
+        
+        for part in parts_data:
+            width = part.get('width_mm', 0)
+            height = part.get('height_mm', 0)
+            quantity = part.get('quantity', 1)
+            
+            # Базовый периметр прямоугольника
+            base_perimeter = 2 * (width + height)
+            
+            # Анализ DXF файла для подсчета всех контуров
+            filepath = part.get('filepath', '')
+            if filepath and os.path.exists(filepath):
+                try:
+                    # Анализируем DXF файл для подсчета всех контуров
+                    contours_count = self._count_holes_in_dxf(filepath)
+                    # Каждый дополнительный контур добавляет к длине реза
+                    # (1 контур уже учтен в базовом периметре)
+                    additional_contours = max(0, contours_count - 1)
+                    additional_cut_length = additional_contours * 50  # 50мм на дополнительный контур
+                    total_length += (base_perimeter + additional_cut_length) * quantity
+                except Exception as e:
+                    print(f"[DEBUG] Ошибка анализа DXF для длины реза: {e}")
+                    # Если не удалось проанализировать DXF, используем базовый расчет
+                    total_length += base_perimeter * quantity
+            else:
+                # Если нет DXF файла, используем базовый расчет
+                total_length += base_perimeter * quantity
+        
+        return total_length
+    
+    def _calculate_total_contours(self, parts_data: List[Dict]) -> int:
+        """Расчет общего количества контуров (внешний + все внутренние контуры)"""
+        total_contours = 0
+        
+        for part in parts_data:
+            quantity = part.get('quantity', 1)
+            
+            # Анализ DXF файла для подсчета всех контуров
+            filepath = part.get('filepath', '')
+            if filepath and os.path.exists(filepath):
+                try:
+                    # Анализируем DXF файл для подсчета всех контуров
+                    contours_count = self._count_holes_in_dxf(filepath)
+                    total_contours += contours_count * quantity
+                except Exception as e:
+                    print(f"[DEBUG] Ошибка анализа DXF для контуров: {e}")
+                    # Если не удалось проанализировать DXF, используем базовый расчет
+                    total_contours += 1 * quantity
+            else:
+                # Если нет DXF файла, используем базовый расчет
+                total_contours += 1 * quantity
+        
+        return total_contours
+    
+    def _count_holes_in_dxf(self, filepath: str) -> int:
+        """Подсчет всех контуров в DXF файле (отверстия, вырезы, сложные контуры)"""
+        try:
+            import ezdxf
+            
+            # Загружаем DXF файл
+            doc = ezdxf.readfile(filepath)
+            msp = doc.modelspace()
+            
+            contours_count = 0
+            
+            # Анализируем все типы контуров
+            for entity in msp:
+                entity_type = entity.dxftype()
+                
+                # Круги (отверстия) - только реальные отверстия
+                if entity_type == 'CIRCLE':
+                    radius = entity.dxf.radius
+                    if 1.75 <= radius <= 50:  # Реальные отверстия от 3.5мм до 100мм диаметр
+                        contours_count += 1
+                
+                # Полилинии - только замкнутые контуры
+                elif entity_type == 'LWPOLYLINE':
+                    if entity.closed:  # Только замкнутые полилинии
+                        vertices = len(entity.get_points())
+                        if vertices >= 4:  # Минимум 4 вершины для замкнутого контура
+                            contours_count += 1
+                
+                # Полилинии старого типа
+                elif entity_type == 'POLYLINE':
+                    if entity.is_closed:  # Только замкнутые полилинии
+                        vertices = len(entity.vertices)
+                        if vertices >= 4:
+                            contours_count += 1
+                
+                # Эллипсы (сложные контуры)
+                elif entity_type == 'ELLIPSE':
+                    contours_count += 1
+                
+                # Сплайны (сложные кривые)
+                elif entity_type == 'SPLINE':
+                    contours_count += 1
+            
+            # Всегда добавляем внешний контур детали (минимум 1)
+            contours_count += 1
+            
+            return contours_count
+            
+        except Exception as e:
+            print(f"[DEBUG] Ошибка анализа DXF {filepath}: {e}")
+            return 1  # Минимум 1 контур (внешний)
+    
+    def _calculate_cutting_time(self, cut_length_mm: float) -> float:
+        """Расчет времени резки"""
+        # Скорость резки лазером: ~3 м/мин = 3000 мм/мин
+        CUTTING_SPEED_MM_PER_MIN = 3000.0
+        
+        # Время = длина / скорость
+        cutting_time = cut_length_mm / CUTTING_SPEED_MM_PER_MIN
+        
+        # Добавляем время на позиционирование (примерно 10% от времени резки)
+        positioning_time = cutting_time * 0.1
+        
+        return cutting_time + positioning_time
 
 
 if __name__ == "__main__":

@@ -153,8 +153,21 @@ class PDFReportGenerator:
             # Дополнительная информация
             elements.append(Spacer(1, 10*mm))
             
+            # Расчет параметров резки
+            total_cut_length = 0.0
+            for unfolding in unfoldings:
+                # Периметр прямоугольника
+                perimeter = 2 * (unfolding['width'] + unfolding['height'])
+                total_cut_length += perimeter
+            
+            # Время резки (скорость ~3 м/мин)
+            cutting_time = (total_cut_length / 1000) / 3.0  # в минутах
+            
             info_text = f"Всего деталей: {len(unfoldings)}<br/>"
             info_text += f"Общая площадь листового металла: {total_area:.4f} м²<br/>"
+            info_text += f"Общая длина реза: {total_cut_length/1000:.1f} м<br/>"
+            info_text += f"Количество контуров: {len(unfoldings)}<br/>"
+            info_text += f"Время резки: {cutting_time:.1f} мин<br/>"
             info_text += f"Расчет выполнен автоматически системой автоматизации КОМПАС-3D"
             
             info = Paragraph(info_text, styles['Normal'])
