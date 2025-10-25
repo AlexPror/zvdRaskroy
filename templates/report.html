@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Отчет по раскрою - {{ project_name }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', 'Helvetica', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: white;
+            padding: 20px;
+        }
+
+        .report-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 3px solid #4A90E2;
+            padding-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .header .project-info {
+            font-size: 16px;
+            color: #666;
+        }
+
+        .section {
+            margin-bottom: 40px;
+            page-break-inside: avoid;
+        }
+
+        .section h2 {
+            font-size: 20px;
+            color: #4A90E2;
+            margin-bottom: 20px;
+            padding: 10px 0;
+            border-bottom: 2px solid #e1e8ed;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border-left: 4px solid #4A90E2;
+        }
+
+        .stat-card h3 {
+            font-size: 20px;
+            color: #4A90E2;
+            margin-bottom: 5px;
+        }
+
+        .stat-card p {
+            color: #666;
+            font-weight: 600;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            font-size: 14px;
+        }
+
+        th {
+            background: linear-gradient(135deg, #4A90E2 0%, #357ABD 100%);
+            color: white;
+            padding: 15px 10px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #e1e8ed;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+
+        tr:hover {
+            background: #e8f0ff;
+        }
+
+        .part-name {
+            text-align: left;
+            max-width: 200px;
+            word-wrap: break-word;
+        }
+
+        .visualization {
+            text-align: center;
+            margin: 30px 0;
+            page-break-inside: avoid;
+        }
+
+        .sheet-container {
+            display: inline-block;
+            border: 2px solid #333;
+            margin: 20px;
+            position: relative;
+            background: #f9f9f9;
+        }
+
+        .sheet-label {
+            position: absolute;
+            top: -25px;
+            left: 0;
+            font-weight: bold;
+            color: #4A90E2;
+        }
+
+        .part {
+            position: absolute;
+            border: 1px solid #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            color: #000;
+        }
+
+        .part-number {
+            background: rgba(255,255,255,0.8);
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+        }
+
+        @media print {
+            body {
+                padding: 0;
+            }
+            
+            .section {
+                page-break-inside: avoid;
+            }
+            
+            .visualization {
+                page-break-inside: avoid;
+            }
+        }
+
+        .page-break {
+            page-break-before: always;
+        }
+
+        .total-row {
+            background: #e8f4fd !important;
+            font-weight: bold;
+        }
+
+        .quantity-input {
+            width: 60px;
+            padding: 4px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 12px;
+        }
+
+        .quantity-input:focus {
+            outline: none;
+            border-color: #4A90E2;
+            box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+        }
+
+        .summary-table {
+            margin-top: 30px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .summary-table h3 {
+            color: #4A90E2;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="report-container">
+        <!-- Заголовок отчета -->
+        <div class="header">
+            <h1>ОПТИМАЛЬНЫЙ РАСКРОЙ ДЕТАЛЕЙ</h1>
+            <div class="project-info">
+                <p><strong>Проект:</strong> {{ project_name }}</p>
+                <p><strong>Дата:</strong> {{ report_date }}</p>
+                <p><strong>Материал:</strong> {{ material_name }}, толщина {{ material_thickness }} мм</p>
+            </div>
+        </div>
+
+        <!-- Статистика -->
+        <div class="section">
+            <h2>СТАТИСТИКА И РЕКОМЕНДАЦИИ</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>{{ sheets_needed }}</h3>
+                    <p>Листов требуется</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{{ utilization_percent }}%</h3>
+                    <p>Использование материала</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{{ total_parts }}</h3>
+                    <p>Всего деталей</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{{ "%.5f"|format(total_area_m2|float) }} м²</h3>
+                    <p>Площадь деталей</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{{ total_cut_length }} м</h3>
+                    <p>Длина реза</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{{ cutting_time }} мин</h3>
+                    <p>Время резки</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{{ cut_gap * 2 }} мм</h3>
+                    <p>Зазор между деталями</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Расчетная таблица деталей -->
+        <div class="section">
+            <h2>РАСЧЕТНАЯ ТАБЛИЦА ДЕТАЛЕЙ</h2>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>№</th>
+                            <th>Название детали</th>
+                            <th>Ширина (мм)</th>
+                            <th>Высота (мм)</th>
+                            <th>Площадь 1 шт (м²)</th>
+                            <th>Кол-во (шт)</th>
+                            <th>Площадь всего (м²)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for part in parts_data %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td class="part-name">{{ part.name }}</td>
+                           <td>{{ "%.0f"|format(part.width) }}</td>
+                           <td>{{ "%.0f"|format(part.height) }}</td>
+                           <td>{{ "%.5f"|format(part.area_m2) }}</td>
+                            <td>
+                                <input type="number" 
+                                       value="{{ part.total_quantity }}" 
+                                       min="1" 
+                                       max="999" 
+                                       class="quantity-input"
+                                       data-part-id="{{ loop.index }}"
+                                       onchange="updateQuantity({{ loop.index }}, this.value)">
+                            </td>
+                            <td class="total-area">{{ "%.5f"|format(part.area_m2 * part.total_quantity) }}</td>
+                        </tr>
+                        {% endfor %}
+                        <tr class="total-row">
+                            <td></td>
+                            <td><strong>ИТОГО:</strong></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td><strong>{{ total_quantity }}</strong></td>
+                            <td><strong>{{ "%.5f"|format(total_area_m2|float) }}</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Итоговая таблица с объединенными деталями -->
+        <div class="section">
+            <h2>ИТОГОВАЯ СВОДКА ПО ДЕТАЛЯМ</h2>
+            <div class="summary-table">
+                <h3>Объединенные детали проекта</h3>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>№</th>
+                                <th>Название детали</th>
+                                <th>Размер (мм)</th>
+                                <th>Площадь 1 шт (м²)</th>
+                                <th>Общее количество</th>
+                                <th>Общая площадь (м²)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for part_name, part_data in merged_parts.items() %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td class="part-name">{{ part_name }}</td>
+                               <td>{{ "%.0f"|format(part_data.width) }}×{{ "%.0f"|format(part_data.height) }}</td>
+                               <td>{{ "%.4f"|format(part_data.area_m2) }}</td>
+                                <td><strong>{{ part_data.total_quantity }}</strong></td>
+                                <td><strong>{{ "%.5f"|format(part_data.total_area|float) }}</strong></td>
+                            </tr>
+                            {% endfor %}
+                            <tr class="total-row">
+                                <td></td>
+                                <td><strong>ИТОГО:</strong></td>
+                                <td></td>
+                                <td></td>
+                                <td><strong>{{ total_quantity_merged }}</strong></td>
+                                <td><strong>{{ "%.5f"|format(total_area_merged|float) }}</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Визуализация раскроя -->
+        <div class="section">
+            <h2>ВИЗУАЛИЗАЦИЯ РАСКРОЯ</h2>
+            {% for sheet in sheets %}
+            <div class="visualization">
+                <h3>ЛИСТ №{{ sheet.sheet_number }} - {{ sheet.parts|length }} деталей</h3>
+                <div class="sheet-container" style="width: {{ "%.0f"|format(sheet.width * 0.3) }}px; height: {{ "%.0f"|format(sheet.height * 0.3) }}px;">
+                    <div class="sheet-label">Лист {{ sheet.sheet_number }}</div>
+                    {% for part in sheet.parts %}
+                    <div class="part" style="
+                        left: {{ "%.0f"|format(part.x * 0.3) }}px; 
+                        top: {{ "%.0f"|format(part.y * 0.3) }}px; 
+                        width: {{ "%.0f"|format(part.width * 0.3) }}px; 
+                        height: {{ "%.0f"|format(part.height * 0.3) }}px;
+                        background-color: {{ part.color }};
+                    ">
+                        <div class="part-number">{{ loop.index }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- Список деталей для листа -->
+            <div class="section page-break">
+                <h2>СПИСОК ДЕТАЛЕЙ ЛИСТА №{{ sheet.sheet_number }}</h2>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>№</th>
+                                <th>Название детали</th>
+                                <th>Габариты</th>
+                                <th>Кол-во</th>
+                                <th>Площадь 1 шт</th>
+                                <th>Общая площадь</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for part_name, part_data in sheet.parts_by_name.items() %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td class="part-name">{{ part_name }}</td>
+                                <td>{{ part_data.width }}×{{ part_data.height }}</td>
+                                <td>{{ part_data.count }}</td>
+                                <td>{{ part_data.area }}</td>
+                                <td>{{ part_data.area * part_data.count }}</td>
+                            </tr>
+                            {% endfor %}
+                            <tr class="total-row">
+                                <td></td>
+                                <td><strong>ИТОГО:</strong></td>
+                                <td></td>
+                                <td><strong>{{ sheet.total_parts }}</strong></td>
+                                <td></td>
+                                <td><strong>{{ "%.5f"|format(sheet.total_area|float) }}</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <script>
+        function updateQuantity(partId, newQuantity) {
+            // Обновляем общую площадь для этой детали
+            const row = document.querySelector(`[data-part-id="${partId}"]`).closest('tr');
+            const areaPerPiece = parseFloat(row.querySelector('td:nth-child(5)').textContent);
+            const totalAreaCell = row.querySelector('.total-area');
+            const newTotalArea = areaPerPiece * parseInt(newQuantity);
+            totalAreaCell.textContent = newTotalArea.toFixed(4);
+            
+            // Пересчитываем общий итог
+            updateTotals();
+        }
+
+        function updateTotals() {
+            // Находим все строки с деталями (исключая итоговую строку)
+            const rows = document.querySelectorAll('tbody tr:not(.total-row)');
+            let totalQuantity = 0;
+            let totalArea = 0;
+            
+            rows.forEach(row => {
+                const quantity = parseInt(row.querySelector('.quantity-input').value);
+                const area = parseFloat(row.querySelector('.total-area').textContent);
+                totalQuantity += quantity;
+                totalArea += area;
+            });
+            
+            // Обновляем итоговую строку
+            const totalRow = document.querySelector('.total-row');
+            totalRow.querySelector('td:nth-child(6)').textContent = totalQuantity;
+            totalRow.querySelector('td:nth-child(7)').textContent = totalArea.toFixed(4);
+        }
+
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            updateTotals();
+        });
+    </script>
+</body>
+</html>

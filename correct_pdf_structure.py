@@ -8,7 +8,7 @@ import sys
 import ezdxf
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A3, landscape
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -104,16 +104,33 @@ class CorrectPDFStructureGUI:
         button_frame.grid(row=2, column=0, columnspan=2, pady=(20, 0), sticky=(tk.W, tk.E))
         
         ttk.Button(button_frame, text="Загрузить файлы", command=self.load_files).grid(row=0, column=0, padx=(0, 10))
-        ttk.Button(button_frame, text="🚀 ОПТИМИЗИРОВАТЬ РАСКРОЙ", command=self.optimize_nesting).grid(row=0, column=1, padx=(0, 10))
-        ttk.Button(button_frame, text="📊 Создать PDF отчет", command=self.create_pdf_report).grid(row=0, column=2, padx=(0, 10))
-        ttk.Button(button_frame, text="📋 Создать Excel отчет", command=self.create_excel_report).grid(row=0, column=3, padx=(0, 10))
-        ttk.Button(button_frame, text="Открыть папку отчетов", command=self.open_reports_folder).grid(row=0, column=4)
+        ttk.Button(button_frame, text="➕ Добавить файлы DXF", command=self.add_multiple_files).grid(row=0, column=1, padx=(0, 10))
+        ttk.Button(button_frame, text="📁 Добавить папку DXF", command=self.add_folder_files).grid(row=0, column=2, padx=(0, 10))
+        ttk.Button(button_frame, text="🚀 ОПТИМИЗИРОВАТЬ РАСКРОЙ", command=self.optimize_nesting).grid(row=0, column=3, padx=(0, 10))
+        ttk.Button(button_frame, text="📊 Создать PDF отчет", command=self.create_pdf_report).grid(row=0, column=4, padx=(0, 10))
+        ttk.Button(button_frame, text="📋 Создать Excel отчет", command=self.create_excel_report).grid(row=0, column=5, padx=(0, 10))
+        ttk.Button(button_frame, text="Открыть папку отчетов", command=self.open_reports_folder).grid(row=0, column=6)
         
         # Таблица файлов
         ttk.Label(main_frame, text="Загруженные файлы:").grid(row=3, column=0, sticky=tk.W, pady=(20, 5))
         
         table_frame = ttk.Frame(main_frame)
         table_frame.grid(row=4, column=0, columnspan=2, pady=(0, 20), sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Создаем стиль для таблицы
+        style = ttk.Style()
+        style.configure("Treeview", 
+                       background="#F5F5F5",  # Светло-серый фон
+                       foreground="black",
+                       fieldbackground="#F5F5F5")
+        style.configure("Treeview.Heading", 
+                       background="#4A90E2",  # Синий заголовок
+                       foreground="white",
+                       font=('Arial', 9, 'bold'))
+        
+        # Стили для чередования строк
+        style.configure("Treeview.EvenRow", background="#F0F8FF")  # Очень светло-голубой
+        style.configure("Treeview.OddRow", background="#FFFFFF")   # Белый
         
         # Таблица
         self.tree = ttk.Treeview(table_frame, columns=('name', 'size', 'area', 'quantity', 'contours'), show='headings', height=12)
@@ -123,11 +140,11 @@ class CorrectPDFStructureGUI:
         self.tree.heading('quantity', text='Количество')
         self.tree.heading('contours', text='Контуры')
         
-        self.tree.column('name', width=300)
-        self.tree.column('size', width=120)
-        self.tree.column('area', width=100)
-        self.tree.column('quantity', width=80)
-        self.tree.column('contours', width=80)
+        self.tree.column('name', width=300, anchor='w')  # Название - по левому краю
+        self.tree.column('size', width=120, anchor='center')  # Размер - по центру
+        self.tree.column('area', width=100, anchor='center')  # Площадь - по центру
+        self.tree.column('quantity', width=80, anchor='center')  # Количество - по центру
+        self.tree.column('contours', width=80, anchor='center')  # Контуры - по центру
         
         self.tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
@@ -246,14 +263,15 @@ class CorrectPDFStructureGUI:
                     
                     self.files_data.append(file_data)
                     
-                    # Добавляем в таблицу
+                    # Добавляем в таблицу с чередованием строк
+                    row_tag = "EvenRow" if len(self.files_data) % 2 == 0 else "OddRow"
                     self.tree.insert('', 'end', values=(
                         file,
                         f"{width:.1f}x{height:.1f}",
                         f"{area_m2:.4f}",
                         quantity,
                         contours
-                    ))
+                    ), tags=(row_tag,))
                     
                     print(f"Добавлен файл: {file}, количество: {quantity}, площадь: {area_m2:.4f}")
                     
@@ -262,6 +280,141 @@ class CorrectPDFStructureGUI:
                 
         self.update_statistics()
         messagebox.showinfo("Информация", f"Загружено {len(self.files_data)} DXF файлов")
+    
+    def add_multiple_files(self):
+        """Добавить несколько DXF файлов"""
+        from tkinter import filedialog
+        
+        file_paths = filedialog.askopenfilenames(
+            title="Выберите DXF файлы",
+            filetypes=[("DXF files", "*.dxf"), ("All files", "*.*")]
+        )
+        
+        if not file_paths:
+            return
+            
+        added_count = 0
+        for file_path in file_paths:
+            if self._add_single_file(file_path):
+                added_count += 1
+                
+        if added_count > 0:
+            self.update_statistics()
+            messagebox.showinfo("Успех", f"Добавлено {added_count} файлов")
+    
+    def add_folder_files(self):
+        """Добавить все DXF файлы из папки"""
+        from tkinter import filedialog
+        
+        folder_path = filedialog.askdirectory(title="Выберите папку с DXF файлами")
+        
+        if not folder_path:
+            return
+            
+        # Находим все DXF файлы в папке
+        import glob
+        dxf_files = glob.glob(os.path.join(folder_path, "*.dxf"))
+        
+        if not dxf_files:
+            messagebox.showwarning("Предупреждение", "В выбранной папке нет DXF файлов")
+            return
+            
+        added_count = 0
+        for file_path in dxf_files:
+            if self._add_single_file(file_path):
+                added_count += 1
+                
+        if added_count > 0:
+            self.update_statistics()
+            messagebox.showinfo("Успех", f"Добавлено {added_count} файлов из папки")
+    
+    def _add_single_file(self, file_path):
+        """Внутренний метод для добавления одного файла"""
+        try:
+            # Читаем DXF файл
+            doc = ezdxf.readfile(file_path)
+            msp = doc.modelspace()
+            
+            # Вычисляем размеры
+            min_x = min_y = float('inf')
+            max_x = max_y = float('-inf')
+            
+            # Подсчитываем контуры
+            contours = 0
+            for entity in msp:
+                if hasattr(entity, 'dxf'):
+                    if hasattr(entity.dxf, 'start') and hasattr(entity.dxf, 'end'):
+                        # Линия
+                        min_x = min(min_x, entity.dxf.start.x, entity.dxf.end.x)
+                        max_x = max(max_x, entity.dxf.start.x, entity.dxf.end.x)
+                        min_y = min(min_y, entity.dxf.start.y, entity.dxf.end.y)
+                        max_y = max(max_y, entity.dxf.start.y, entity.dxf.end.y)
+                        contours += 1
+                    elif hasattr(entity.dxf, 'center'):
+                        # Круг
+                        center = entity.dxf.center
+                        radius = entity.dxf.radius
+                        min_x = min(min_x, center.x - radius)
+                        max_x = max(max_x, center.x + radius)
+                        min_y = min(min_y, center.y - radius)
+                        max_y = max(max_y, center.y + radius)
+                        contours += 1
+                    elif hasattr(entity.dxf, 'points'):
+                        # Полилиния
+                        for point in entity.dxf.points:
+                            min_x = min(min_x, point[0])
+                            max_x = max(max_x, point[0])
+                            min_y = min(min_y, point[1])
+                            max_y = max(max_y, point[1])
+                        contours += 1
+            
+            if min_x == float('inf'):
+                messagebox.showerror("Ошибка", "Не удалось определить размеры файла")
+                return
+                
+            width = max_x - min_x
+            height = max_y - min_y
+            area_m2 = (width * height) / 1_000_000
+            
+            # Извлекаем количество из названия файла
+            filename = os.path.basename(file_path)
+            quantity = 1
+            import re
+            quantity_match = re.search(r'(\d+)шт', filename)
+            if quantity_match:
+                quantity = int(quantity_match.group(1))
+            else:
+                # Пробуем другие варианты
+                quantity_match = re.search(r'x(\d+)', filename)
+                if quantity_match:
+                    quantity = int(quantity_match.group(1))
+            
+            # Добавляем в данные
+            file_data = {
+                'name': filename,
+                'width': width,
+                'height': height,
+                'area_m2': area_m2,
+                'quantity': quantity,
+                'contours': contours
+            }
+            self.files_data.append(file_data)
+            
+            # Добавляем в таблицу с чередованием строк
+            row_tag = "EvenRow" if len(self.files_data) % 2 == 0 else "OddRow"
+            self.tree.insert('', 'end', values=(
+                filename,
+                f"{width:.1f}x{height:.1f}",
+                f"{area_m2:.4f}",
+                quantity,
+                contours
+            ), tags=(row_tag,))
+            
+            return True
+            
+        except Exception as e:
+            print(f"Ошибка чтения файла {file_path}: {e}")
+            return False
         
     def on_single_click(self, event):
         """Обработка одинарного клика для выбора колонки"""
@@ -529,9 +682,21 @@ class CorrectPDFStructureGUI:
                     total_parts = len(rectangles)
                     total_area_all = sum(f['area_m2'] * f['quantity'] for f in self.files_data)
                     total_sheets_area = len(bins) * 3.125  # 2500x1250 мм = 3.125 м²
-                    utilization_percent = (total_area_all / total_sheets_area) * 100 if total_sheets_area > 0 else 0
-                    waste_area = total_sheets_area - total_area_all
-                    overall_waste_percent = (waste_area / total_sheets_area) * 100 if total_sheets_area > 0 else 0
+                    
+                    # Исправленная логика расчета использования материала
+                    if total_sheets_area > 0:
+                        utilization_percent = min((total_area_all / total_sheets_area) * 100, 100.0)  # Ограничиваем 100%
+                        waste_area = max(total_sheets_area - total_area_all, 0)  # Отходы не могут быть отрицательными
+                        overall_waste_percent = (waste_area / total_sheets_area) * 100
+                    else:
+                        utilization_percent = 0
+                        waste_area = 0
+                        overall_waste_percent = 0
+                    
+                    # Отладочная информация
+                    print(f"DEBUG: Площадь деталей: {total_area_all:.4f} м2")
+                    print(f"DEBUG: Площадь листов: {total_sheets_area:.4f} м2")
+                    print(f"DEBUG: Использование: {utilization_percent:.1f}%")
                     
                     # Расчет длины реза и времени
                     total_cut_length_mm = self.calculate_cut_length()
@@ -628,14 +793,14 @@ class CorrectPDFStructureGUI:
     
     def _create_pdf_with_visualization(self, pdf_path, result):
         """Создать PDF с правильной структурой"""
-        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.pagesizes import A3, landscape
         from reportlab.lib import colors as pdf_colors
         from reportlab.lib.units import mm
         from reportlab.pdfgen import canvas as pdf_canvas
         
         # Создаем PDF в альбомной ориентации
-        c = pdf_canvas.Canvas(pdf_path, pagesize=landscape(A4))
-        page_width, page_height = landscape(A4)
+        c = pdf_canvas.Canvas(pdf_path, pagesize=landscape(A3))
+        page_width, page_height = landscape(A3)
         
         # Цвета для деталей (одинаковые группы - одинаковый цвет)
         colors_list = [
@@ -827,9 +992,84 @@ class CorrectPDFStructureGUI:
             ('WORDWRAP', (0, 1), (-1, -2), 'CJK'),
         ]))
         
-        # Размещаем таблицу с правильным отступом от заголовка
+        # Размещаем таблицу с фиксированным позиционированием
         table.wrapOn(c, page_width - 40*mm, page_height - 100*mm)
-        table.drawOn(c, 20*mm, page_height - 100*mm)
+        
+        # Проверяем высоту таблицы и разбиваем на страницы если нужно
+        table_height = table._height
+        available_height = page_height - 200*mm  # Доступная высота (учитываем отступ от заголовка)
+        
+        if table_height > available_height:
+            # Таблица слишком большая - разбиваем на страницы
+            rows_per_page = int(available_height / 20*mm)  # Примерно 20мм на строку
+            
+            # Создаем первую страницу
+            first_page_data = table_data[:rows_per_page]
+            first_table = Table(first_page_data, colWidths=[15*mm, 100*mm, 20*mm, 20*mm, 25*mm, 20*mm, 30*mm])
+            
+            # Применяем стили к первой таблице
+            first_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4A90E2')),  # Синий заголовок
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), bold_font),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('TOPPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor('#F5F5F5')),  # Светло-серый
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#D3D3D3')),  # Светло-серый
+                ('FONTNAME', (0, -1), (-1, -1), bold_font),
+                ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#E8F4FD')),  # Очень светло-голубой
+                ('FONTNAME', (0, 1), (-1, -2), regular_font),
+                ('FONTSIZE', (0, 1), (-1, -2), 8),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('WORDWRAP', (0, 1), (-1, -2), 'CJK'),
+            ]))
+            
+            first_table.wrapOn(c, page_width - 60*mm, available_height)
+            first_table.drawOn(c, 30*mm, page_height - 150*mm)
+            
+            # Добавляем остальные страницы
+            remaining_data = table_data[rows_per_page:]
+            if remaining_data:
+                c.showPage()
+                c.drawCentredString(page_width/2, page_height - 30*mm, "РАСЧЕТНАЯ ТАБЛИЦА ДЕТАЛЕЙ (продолжение)")
+                
+                remaining_table = Table(remaining_data, colWidths=[15*mm, 100*mm, 20*mm, 20*mm, 25*mm, 20*mm, 30*mm])
+                
+                # Применяем стили к оставшейся таблице
+                remaining_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4A90E2')),  # Синий заголовок
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), bold_font),
+                    ('FONTSIZE', (0, 0), (-1, 0), 9),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                    ('TOPPADDING', (0, 0), (-1, 0), 8),
+                    ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor('#F5F5F5')),  # Светло-серый
+                    ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#D3D3D3')),  # Светло-серый
+                    ('FONTNAME', (0, -1), (-1, -1), bold_font),
+                    ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#E8F4FD')),  # Очень светло-голубой
+                    ('FONTNAME', (0, 1), (-1, -2), regular_font),
+                    ('FONTSIZE', (0, 1), (-1, -2), 8),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                    ('WORDWRAP', (0, 1), (-1, -2), 'CJK'),
+                ]))
+                
+                remaining_table.wrapOn(c, page_width - 60*mm, available_height)
+                remaining_table.drawOn(c, 30*mm, page_height - 150*mm)
+        else:
+            # Таблица помещается на одну страницу
+            table.wrapOn(c, page_width - 60*mm, page_height - 200*mm)
+            table.drawOn(c, 30*mm, page_height - 150*mm)
         
         
         # НОВАЯ СТРАНИЦА: Визуализация раскроя
@@ -1009,9 +1249,84 @@ class CorrectPDFStructureGUI:
                     ('WORDWRAP', (0, 1), (-1, -2), 'CJK'),
                 ]))
                 
-                # Размещаем таблицу списка с правильным отступом от заголовка
-                list_table.wrapOn(c, page_width - 40*mm, page_height - 100*mm)
-                list_table.drawOn(c, 20*mm, page_height - 90*mm)
+                # Размещаем таблицу списка с фиксированным отступом от заголовка
+                list_table.wrapOn(c, page_width - 40*mm, page_height - 120*mm)
+                
+                # Проверяем высоту таблицы и разбиваем на страницы если нужно
+                list_table_height = list_table._height
+                available_list_height = page_height - 220*mm  # Доступная высота (учитываем отступ от заголовка)
+                
+                if list_table_height > available_list_height:
+                    # Таблица слишком большая - разбиваем на страницы
+                    rows_per_page = int(available_list_height / 15*mm)  # Примерно 15мм на строку
+                    
+                    # Создаем первую страницу
+                    first_page_data = list_data[:rows_per_page]
+                    first_list_table = Table(first_page_data, colWidths=[15*mm, 100*mm, 25*mm, 15*mm, 20*mm, 30*mm])
+                    
+                    # Применяем стили к первой таблице списка
+                    first_list_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#6B73FF')),  # Фиолетово-синий заголовок
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('FONTNAME', (0, 0), (-1, 0), list_bold_font),
+                        ('FONTSIZE', (0, 0), (-1, 0), 9),
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                        ('TOPPADDING', (0, 0), (-1, 0), 8),
+                        ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor('#F8F9FF')),  # Очень светло-фиолетовый
+                        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E0E0E0')),  # Светло-серый
+                        ('FONTNAME', (0, -1), (-1, -1), list_bold_font),
+                        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#E8F0FF')),  # Светло-голубой
+                        ('FONTNAME', (0, 1), (-1, -2), list_regular_font),
+                        ('FONTSIZE', (0, 1), (-1, -2), 8),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                        ('TOPPADDING', (0, 0), (-1, -1), 4),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                        ('WORDWRAP', (0, 1), (-1, -2), 'CJK'),
+                    ]))
+                    
+                    first_list_table.wrapOn(c, page_width - 60*mm, available_list_height)
+                    first_list_table.drawOn(c, 30*mm, page_height - 170*mm)
+                    
+                    # Добавляем остальные страницы
+                    remaining_data = list_data[rows_per_page:]
+                    if remaining_data:
+                        c.showPage()
+                        c.drawCentredString(page_width/2, page_height - 30*mm, f"СПИСОК ДЕТАЛЕЙ ЛИСТА №{sheet['sheet_number']} (продолжение)")
+                        
+                        remaining_list_table = Table(remaining_data, colWidths=[15*mm, 100*mm, 25*mm, 15*mm, 20*mm, 30*mm])
+                        
+                        # Применяем стили к оставшейся таблице списка
+                        remaining_list_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#6B73FF')),  # Фиолетово-синий заголовок
+                            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                            ('FONTNAME', (0, 0), (-1, 0), list_bold_font),
+                            ('FONTSIZE', (0, 0), (-1, 0), 9),
+                            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                            ('TOPPADDING', (0, 0), (-1, 0), 8),
+                            ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor('#F8F9FF')),  # Очень светло-фиолетовый
+                            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E0E0E0')),  # Светло-серый
+                            ('FONTNAME', (0, -1), (-1, -1), list_bold_font),
+                            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#E8F0FF')),  # Светло-голубой
+                            ('FONTNAME', (0, 1), (-1, -2), list_regular_font),
+                            ('FONTSIZE', (0, 1), (-1, -2), 8),
+                            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                            ('TOPPADDING', (0, 0), (-1, -1), 4),
+                            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                            ('WORDWRAP', (0, 1), (-1, -2), 'CJK'),
+                        ]))
+                        
+                        remaining_list_table.wrapOn(c, page_width - 60*mm, available_list_height)
+                        remaining_list_table.drawOn(c, 30*mm, page_height - 170*mm)
+                else:
+                    # Таблица помещается на одну страницу
+                    list_table.wrapOn(c, page_width - 60*mm, page_height - 220*mm)
+                    list_table.drawOn(c, 30*mm, page_height - 170*mm)
         
         c.save()
         
