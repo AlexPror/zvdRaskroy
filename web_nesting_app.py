@@ -104,17 +104,22 @@ def parse_dxf_file(file_path, folder_name=""):
         if min_x == float('inf'):
             return None
             
-        width = max_x - min_x
-        height = max_y - min_y
+        # Реальные размеры детали из DXF (без зазора)
+        real_width = max_x - min_x
+        real_height = max_y - min_y
         
-        # Добавляем зазор для резки
-        width += CUT_GAP
-        height += CUT_GAP
+        # Площадь рассчитываем БЕЗ зазора (реальная площадь детали)
+        area_m2 = (real_width * real_height) / 1_000_000
         
-        area_m2 = (width * height) / 1_000_000
+        # Размеры с зазором для алгоритма раскроя
+        width = real_width + CUT_GAP
+        height = real_height + CUT_GAP
         
         # Извлекаем количество из имени файла
         filename = os.path.basename(file_path)
+        
+        # Отладка
+        print(f"DEBUG read_dxf: {filename[:40]}: real={real_width:.1f}x{real_height:.1f}, area={area_m2:.5f} м2")
         quantity = 1
         if '2шт' in filename:
             quantity = 2
@@ -132,9 +137,11 @@ def parse_dxf_file(file_path, folder_name=""):
             'name': unique_name,
             'original_name': filename,
             'folder_name': folder_name,
-            'width': round(width),
+            'width': round(width),  # Размер с зазором для раскроя
             'height': round(height),
-            'area_m2': area_m2,
+            'real_width': round(real_width, 1),  # Реальный размер из DXF
+            'real_height': round(real_height, 1),
+            'area_m2': area_m2,  # Площадь БЕЗ зазора
             'quantity': quantity,
             'contours': contours
         }
@@ -154,13 +161,16 @@ def optimize_nesting():
     try:
         # Создаем прямоугольники для rectpack
         rectangles = []
+        file_data_map = {}  # Словарь для хранения исходных данных по имени
         for file_data in files_data:
             for _ in range(file_data['quantity']):
                 rectangles.append((
-                    file_data['width'] + 5,  # +5мм зазор
-                    file_data['height'] + 5,
+                    file_data['width'],  # Уже содержит зазор 5мм
+                    file_data['height'],
                     file_data['name']
                 ))
+                # Сохраняем исходные данные для доступа к real_width и real_height
+                file_data_map[file_data['name']] = file_data
         
         # Размеры листа 2500x1250 мм
         sheet_width = 2500
@@ -218,13 +228,21 @@ def optimize_nesting():
                 x, y, w, h = rect.x, rect.y, rect.width, rect.height
                 part_name = rectangles[rect.rid][2]
                 
+                # Получаем реальные размеры из исходных данных
+                original_data = file_data_map[part_name]
+                real_width = original_data['real_width']
+                real_height = original_data['real_height']
+                area_m2 = original_data['area_m2']
+                
                 part = {
                     'name': part_name,
                     'x': x,
                     'y': y,
-                    'width': w - 5,  # Убираем зазор
-                    'height': h - 5,
-                    'area': (w - 5) * (h - 5) / 1_000_000
+                    'width': w,  # Размер с зазором для визуализации
+                    'height': h,
+                    'real_width': real_width,  # Реальный размер из DXF
+                    'real_height': real_height,
+                    'area': area_m2  # Площадь из DXF (БЕЗ зазора)
                 }
                 sheet['parts'].append(part)
             
@@ -235,16 +253,24 @@ def optimize_nesting():
         total_area_all = sum(f['area_m2'] * f['quantity'] for f in files_data)
         total_sheets_area = len(bins) * 3.125  # 2500x1250 мм = 3.125 м²
         
+        # Отладка исходных данных (отключена для production)
+        # print(f"\nDEBUG: === ИСХОДНЫЕ ДАННЫЕ ФАЙЛОВ ===", flush=True)
+        # for f in files_data:
+        #     print(f"DEBUG: {f['name'][:40]}: real={f['real_width']:.1f}x{f['real_height']:.1f}, area={f['area_m2']:.5f} м2, qty={f['quantity']}", flush=True)
+        
         # Правильный расчет использования материала по фактическому размещению
         total_used_area = 0
-        for sheet in sheets:
+        for sheet_idx, sheet in enumerate(sheets):
             sheet_area = 0
             for part in sheet['parts']:
                 sheet_area += part['area']
+                # print(f"DEBUG: Лист {sheet_idx+1}, деталь '{part['name'][:30]}', площадь: {part['area']:.5f} м2", flush=True)
+            sheet['total_area'] = sheet_area  # Сохраняем площадь для каждого листа
             total_used_area += sheet_area
+            # print(f"DEBUG: Лист {sheet_idx+1} - итого площадь: {sheet_area:.4f} м2", flush=True)
         
         if total_sheets_area > 0:
-            utilization_percent = min((total_used_area / total_sheets_area) * 100, 100.0)
+            utilization_percent = (total_used_area / total_sheets_area) * 100  # Убрали min() для отладки
             waste_area = max(total_sheets_area - total_used_area, 0)
             overall_waste_percent = (waste_area / total_sheets_area) * 100
         else:
@@ -253,27 +279,36 @@ def optimize_nesting():
             overall_waste_percent = 0
         
         # Отладочная информация
-        print(f"DEBUG: Площадь деталей: {total_area_all:.4f} м2")
-        print(f"DEBUG: Площадь листов: {total_sheets_area:.4f} м2")
-        print(f"DEBUG: Использование: {utilization_percent:.1f}%")
+        print(f"DEBUG: Площадь деталей (БЕЗ зазора): {total_area_all:.4f} м2", flush=True)
+        print(f"DEBUG: Площадь размещенных деталей: {total_used_area:.4f} м2", flush=True)
+        print(f"DEBUG: Площадь листов: {total_sheets_area:.4f} м2", flush=True)
+        print(f"DEBUG: Использование: {utilization_percent:.1f}%", flush=True)
         
         # Расчет длины реза и времени
-        total_cut_length_mm = sum(f['contours'] * f['quantity'] for f in files_data) * 50  # Примерно 50мм на контур
+        # Реалистичный расчет: периметр каждой детали
+        total_cut_length_mm = 0
+        for f in files_data:
+            # Периметр прямоугольника = 2 * (ширина + высота)
+            perimeter_mm = 2 * (f['width'] + f['height'])
+            total_cut_length_mm += perimeter_mm * f['quantity']
+        
         total_contours = sum(f['contours'] * f['quantity'] for f in files_data)
+        
         # Реалистичный расчет времени резки с учетом материала
         if material_type == "stainless_304":
             # Нержавейка AISI 304 - более медленная резка
-            cutting_speed_m_per_min = 1.5  # Скорость резки 1.5 м/мин
-            positioning_time_per_part = 0.15  # 9 сек на позиционирование (сложнее)
+            cutting_speed_m_per_min = 1.5  # Скорость резки 1.5 м/мин для толщины 1мм
+            positioning_time_per_part = 0.15  # 9 сек на позиционирование
         else:  # galvanized
             # Оцинковка - быстрее режется
-            cutting_speed_m_per_min = 2.5  # Скорость резки 2.5 м/мин
+            cutting_speed_m_per_min = 2.5  # Скорость резки 2.5 м/мин для толщины 1мм
             positioning_time_per_part = 0.1  # 6 сек на позиционирование
         
         # Корректировка скорости в зависимости от толщины
-        thickness_factor = 1.0 + (material_thickness - 1.0) * 0.2  # +20% за каждый мм сверх 1мм
+        thickness_factor = 1.0 + (material_thickness - 1.0) * 0.3  # +30% замедление за каждый мм сверх 1мм
         cutting_speed_m_per_min = cutting_speed_m_per_min / thickness_factor
         
+        # Время резки = длина реза / скорость + время позиционирования
         cutting_time_minutes = (total_cut_length_mm / 1000 / cutting_speed_m_per_min) + (total_parts * positioning_time_per_part)
         
         optimization_result = {
@@ -297,17 +332,28 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
-    global files_data, project_name, material_type, material_thickness
+    global files_data, project_name, material_type, material_thickness, optimization_result
     
     if 'files' not in request.files:
         return jsonify({'error': 'Нет файлов'}), 400
     
     files = request.files.getlist('files')
-    project_name = request.form.get('project_name', 'Проект без названия')
-    material_type = request.form.get('material_type', 'stainless_304')
-    material_thickness = float(request.form.get('material_thickness', '1.0'))
     
-    files_data = []
+    # Проверяем, нужно ли очистить проект
+    clear_project = request.form.get('clear_project', 'true').lower() == 'true'
+    
+    if clear_project:
+        files_data = []
+        optimization_result = None
+        print("DEBUG: Проект очищен перед загрузкой", flush=True)
+    
+    # Получаем параметры проекта (только если очищаем)
+    if clear_project or not project_name:
+        project_name = request.form.get('project_name', 'Проект без названия')
+        material_type = request.form.get('material_type', 'stainless_304')
+        material_thickness = float(request.form.get('material_thickness', '1.0'))
+    
+    initial_count = len(files_data)
     
     for file in files:
         if file.filename.endswith('.dxf'):
@@ -328,7 +374,32 @@ def upload_files():
                 # Парсим DXF
                 file_data = parse_dxf_file(temp_path, folder_name)
                 if file_data:
-                    files_data.append(file_data)
+                    # Ищем деталь с таким же именем и габаритами
+                    found_duplicate = False
+                    original_name = file_data['original_name']
+                    
+                    for existing_file in files_data:
+                        # Проверяем совпадение по оригинальному имени и габаритам
+                        if (existing_file['original_name'] == original_name and
+                            existing_file['real_width'] == file_data['real_width'] and
+                            existing_file['real_height'] == file_data['real_height']):
+                            # Деталь с такими же габаритами уже есть - увеличиваем количество
+                            existing_file['quantity'] += file_data['quantity']
+                            found_duplicate = True
+                            print(f"DEBUG: Деталь '{original_name}' ({file_data['real_width']}x{file_data['real_height']}) уже есть, увеличено количество до {existing_file['quantity']}", flush=True)
+                            break
+                    
+                    if not found_duplicate:
+                        # Деталь новая или с другими габаритами - добавляем
+                        # Проверяем, есть ли детали с таким же именем, но другими размерами
+                        same_name_count = sum(1 for f in files_data if f['original_name'] == original_name)
+                        if same_name_count > 0:
+                            # Добавляем размеры к имени для различия
+                            file_data['name'] = f"{file_data['name']} [{file_data['real_width']:.0f}x{file_data['real_height']:.0f}]"
+                            print(f"DEBUG: Деталь с именем '{original_name}' есть, но с другими размерами. Добавлена как '{file_data['name']}'", flush=True)
+                        
+                        files_data.append(file_data)
+                        print(f"DEBUG: Новая деталь '{file_data['name']}' добавлена (кол-во: {file_data['quantity']})", flush=True)
                 
             finally:
                 # Удаляем временный файл
@@ -338,9 +409,13 @@ def upload_files():
                     except OSError:
                         pass  # Игнорируем ошибки удаления
     
+    new_files_count = len(files_data) - initial_count
+    
     return jsonify({
         'success': True,
-        'count': len(files_data),
+        'count': new_files_count,
+        'total_files': len(files_data),
+        'cleared': clear_project,
         'files': files_data
     })
 
@@ -358,7 +433,7 @@ def optimize():
 @app.route('/html_report', methods=['GET'])
 def generate_html_report():
     """Генерация HTML отчета"""
-    global optimization_result, project_name
+    global optimization_result, project_name, material_type, material_thickness
     
     if not optimization_result or not optimization_result['success']:
         return jsonify({'error': 'Нет результатов оптимизации'}), 400
@@ -524,6 +599,22 @@ def generate_pdf():
             c.setFont("Helvetica", 10)
         c.drawCentredString(page_width/2, header_y_start - 25*mm, f"Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
         
+        # ═══════════════════════════════════════════════════════════
+        # СЕКЦИЯ 1: СТАТИСТИКА ПРОЕКТА
+        # ═══════════════════════════════════════════════════════════
+        
+        # Рисуем красивый заголовок секции
+        stats_y_pos = header_y_start - 35*mm
+        c.setFillColor(colors.HexColor('#667eea'))
+        c.rect(20*mm, stats_y_pos - 8*mm, page_width - 40*mm, 10*mm, fill=1, stroke=0)
+        
+        try:
+            c.setFont("RussianFont-Bold", 14)
+        except:
+            c.setFont("Helvetica-Bold", 14)
+        c.setFillColor(colors.white)
+        c.drawCentredString(page_width/2, stats_y_pos - 3*mm, "📊 СТАТИСТИКА ПРОЕКТА")
+        
         # СТАТИСТИКА В ТАБЛИЦЕ
         result = optimization_result
         total_area_all = sum(f['area_m2'] * f['quantity'] for f in files_data)
@@ -563,24 +654,146 @@ def generate_pdf():
         ]))
         
         # ФИКСИРОВАННЫЙ БЛОК ТАБЛИЦЫ СТАТИСТИКИ
-        stats_table_y_start = header_y_start - 40*mm
-        stats_table_y_end = stats_table_y_start - 80*mm
+        stats_table_y_start = stats_y_pos - 12*mm
+        stats_table_y_end = stats_table_y_start - 75*mm
         
         stats_table.wrapOn(c, page_width - 40*mm, 80*mm)
         stats_table.drawOn(c, 20*mm, stats_table_y_end)
         
-        # НОВАЯ СТРАНИЦА: РАСЧЕТНАЯ ТАБЛИЦА ДЕТАЛЕЙ
-        c.showPage()
+        # ═══════════════════════════════════════════════════════════
+        # ИНФОГРАФИКА: ИНДИКАТОРЫ ЭФФЕКТИВНОСТИ
+        # ═══════════════════════════════════════════════════════════
         
-        # ФИКСИРОВАННЫЙ БЛОК ЗАГОЛОВКА ДЛЯ ТАБЛИЦ
-        table_header_y_start = page_height - 30*mm
-        table_header_y_end = page_height - 10*mm
+        infographic_y = stats_table_y_end - 15*mm
+        
+        # Индикатор использования материала
+        utilization = result['utilization_percent']
+        waste = result['overall_waste_percent']
+        
+        # Определяем цвет индикатора
+        if utilization >= 80:
+            indicator_color = colors.HexColor('#27ae60')  # Зеленый - отлично
+            status_text = "ОТЛИЧНО"
+        elif utilization >= 60:
+            indicator_color = colors.HexColor('#f39c12')  # Оранжевый - хорошо
+            status_text = "ХОРОШО"
+        else:
+            indicator_color = colors.HexColor('#e74c3c')  # Красный - низкая эффективность
+            status_text = "ТРЕБУЕТСЯ ОПТИМИЗАЦИЯ"
+        
+        # Рисуем прогресс-бар использования
+        bar_width = page_width - 60*mm
+        bar_height = 8*mm
+        bar_x = 30*mm
+        bar_y = infographic_y
+        
+        # Фон (серый)
+        c.setFillColor(colors.HexColor('#ecf0f1'))
+        c.rect(bar_x, bar_y, bar_width, bar_height, fill=1, stroke=0)
+        
+        # Заполнение (цветное)
+        fill_width = bar_width * (utilization / 100)
+        c.setFillColor(indicator_color)
+        c.rect(bar_x, bar_y, fill_width, bar_height, fill=1, stroke=0)
+        
+        # Обводка
+        c.setStrokeColor(colors.HexColor('#bdc3c7'))
+        c.setLineWidth(1)
+        c.rect(bar_x, bar_y, bar_width, bar_height, fill=0, stroke=1)
+        
+        # Текст над прогресс-баром
+        try:
+            c.setFont("RussianFont-Bold", 10)
+        except:
+            c.setFont("Helvetica-Bold", 10)
+        c.setFillColor(colors.HexColor('#2c3e50'))
+        c.drawString(bar_x, bar_y + bar_height + 3*mm, f"Использование материала: {utilization:.1f}%")
+        
+        # Статус справа
+        c.setFillColor(indicator_color)
+        c.drawRightString(bar_x + bar_width, bar_y + bar_height + 3*mm, status_text)
+        
+        # Компактная инфографика: 3 ключевых показателя
+        info_y = bar_y - 10*mm
+        box_width = (page_width - 70*mm) / 3
+        box_height = 18*mm
+        box_spacing = 5*mm
+        
+        # Показатель 1: Листов
+        box1_x = 30*mm
+        c.setFillColor(colors.HexColor('#3498db'))
+        c.roundRect(box1_x, info_y, box_width, box_height, 3*mm, fill=1, stroke=0)
         
         try:
             c.setFont("RussianFont-Bold", 16)
         except:
             c.setFont("Helvetica-Bold", 16)
-        c.drawCentredString(page_width/2, table_header_y_start, "РАСЧЕТНАЯ ТАБЛИЦА ДЕТАЛЕЙ")
+        c.setFillColor(colors.white)
+        c.drawCentredString(box1_x + box_width/2, info_y + 10*mm, f"{result['sheets_needed']}")
+        
+        try:
+            c.setFont("RussianFont", 8)
+        except:
+            c.setFont("Helvetica", 8)
+        c.drawCentredString(box1_x + box_width/2, info_y + 4*mm, "ЛИСТОВ")
+        
+        # Показатель 2: Деталей
+        box2_x = box1_x + box_width + box_spacing
+        c.setFillColor(colors.HexColor('#9b59b6'))
+        c.roundRect(box2_x, info_y, box_width, box_height, 3*mm, fill=1, stroke=0)
+        
+        try:
+            c.setFont("RussianFont-Bold", 16)
+        except:
+            c.setFont("Helvetica-Bold", 16)
+        c.setFillColor(colors.white)
+        c.drawCentredString(box2_x + box_width/2, info_y + 10*mm, f"{result['total_parts']}")
+        
+        try:
+            c.setFont("RussianFont", 8)
+        except:
+            c.setFont("Helvetica", 8)
+        c.drawCentredString(box2_x + box_width/2, info_y + 4*mm, "ДЕТАЛЕЙ")
+        
+        # Показатель 3: Отходы
+        box3_x = box2_x + box_width + box_spacing
+        c.setFillColor(colors.HexColor('#e74c3c'))
+        c.roundRect(box3_x, info_y, box_width, box_height, 3*mm, fill=1, stroke=0)
+        
+        try:
+            c.setFont("RussianFont-Bold", 16)
+        except:
+            c.setFont("Helvetica-Bold", 16)
+        c.setFillColor(colors.white)
+        c.drawCentredString(box3_x + box_width/2, info_y + 10*mm, f"{waste:.1f}%")
+        
+        try:
+            c.setFont("RussianFont", 8)
+        except:
+            c.setFont("Helvetica", 8)
+        c.drawCentredString(box3_x + box_width/2, info_y + 4*mm, "ОТХОДЫ")
+        
+        # НОВАЯ СТРАНИЦА: РАСЧЕТНАЯ ТАБЛИЦА ДЕТАЛЕЙ
+        c.showPage()
+        
+        # ═══════════════════════════════════════════════════════════
+        # СЕКЦИЯ 2: РАСЧЕТНАЯ ТАБЛИЦА ДЕТАЛЕЙ
+        # ═══════════════════════════════════════════════════════════
+        
+        # ФИКСИРОВАННЫЙ БЛОК ЗАГОЛОВКА ДЛЯ ТАБЛИЦ
+        table_header_y_start = page_height - 25*mm
+        table_header_y_end = page_height - 10*mm
+        
+        # Рисуем красивый заголовок секции
+        c.setFillColor(colors.HexColor('#4A90E2'))
+        c.rect(20*mm, table_header_y_start - 8*mm, page_width - 40*mm, 10*mm, fill=1, stroke=0)
+        
+        try:
+            c.setFont("RussianFont-Bold", 14)
+        except:
+            c.setFont("Helvetica-Bold", 14)
+        c.setFillColor(colors.white)
+        c.drawCentredString(page_width/2, table_header_y_start - 3*mm, "📐 РАСЧЕТНАЯ ТАБЛИЦА ДЕТАЛЕЙ")
         
         # Создаем данные для таблицы
         table_data = [
@@ -662,11 +875,15 @@ def generate_pdf():
                 if page_start > 0:
                     c.showPage()
                     # ФИКСИРОВАННЫЙ БЛОК ЗАГОЛОВКА для продолжения
+                    c.setFillColor(colors.HexColor('#4A90E2'))
+                    c.rect(20*mm, table_header_y_start - 8*mm, page_width - 40*mm, 10*mm, fill=1, stroke=0)
+                    
                     try:
-                        c.setFont("RussianFont-Bold", 16)
+                        c.setFont("RussianFont-Bold", 14)
                     except:
-                        c.setFont("Helvetica-Bold", 16)
-                    c.drawCentredString(page_width/2, table_header_y_start, "РАСЧЕТНАЯ ТАБЛИЦА ДЕТАЛЕЙ (продолжение)")
+                        c.setFont("Helvetica-Bold", 14)
+                    c.setFillColor(colors.white)
+                    c.drawCentredString(page_width/2, table_header_y_start - 3*mm, "📐 РАСЧЕТНАЯ ТАБЛИЦА ДЕТАЛЕЙ (продолжение)")
                 
                 page_data = table_data[page_start:page_start + rows_per_page]
                 
@@ -701,15 +918,24 @@ def generate_pdf():
         # НОВАЯ СТРАНИЦА: Визуализация раскроя
         c.showPage()
         
+        # ═══════════════════════════════════════════════════════════
+        # СЕКЦИЯ 3: ВИЗУАЛИЗАЦИЯ РАСКРОЯ
+        # ═══════════════════════════════════════════════════════════
+        
         # ФИКСИРОВАННЫЙ БЛОК ЗАГОЛОВКА для визуализации
-        viz_header_y_start = page_height - 30*mm
+        viz_header_y_start = page_height - 25*mm
         viz_header_y_end = page_height - 10*mm
         
+        # Рисуем красивый заголовок секции
+        c.setFillColor(colors.HexColor('#27ae60'))
+        c.rect(20*mm, viz_header_y_start - 8*mm, page_width - 40*mm, 10*mm, fill=1, stroke=0)
+        
         try:
-            c.setFont("RussianFont-Bold", 16)
+            c.setFont("RussianFont-Bold", 14)
         except:
-            c.setFont("Helvetica-Bold", 16)
-        c.drawCentredString(page_width/2, viz_header_y_start, "ВИЗУАЛИЗАЦИЯ РАСКРОЯ")
+            c.setFont("Helvetica-Bold", 14)
+        c.setFillColor(colors.white)
+        c.drawCentredString(page_width/2, viz_header_y_start - 3*mm, "🎨 ВИЗУАЛИЗАЦИЯ РАСКРОЯ")
         
         # Цвета для деталей
         colors_list = [
@@ -729,15 +955,19 @@ def generate_pdf():
                 c.showPage()
             
             # ФИКСИРОВАННЫЙ БЛОК ЗАГОЛОВКА листа
-            sheet_header_y_start = page_height - 30*mm
+            sheet_header_y_start = page_height - 25*mm
             sheet_header_y_end = page_height - 10*mm
             
-            # Заголовок листа
+            # Заголовок листа с цветной полосой
+            c.setFillColor(colors.HexColor('#f39c12'))
+            c.rect(20*mm, sheet_header_y_start - 8*mm, page_width - 40*mm, 10*mm, fill=1, stroke=0)
+            
             try:
                 c.setFont("RussianFont-Bold", 14)
             except:
                 c.setFont("Helvetica-Bold", 14)
-            c.drawCentredString(page_width/2, sheet_header_y_start, f"ЛИСТ №{sheet['sheet_number']} - {len(sheet['parts'])} деталей")
+            c.setFillColor(colors.white)
+            c.drawCentredString(page_width/2, sheet_header_y_start - 3*mm, f"📄 ЛИСТ №{sheet['sheet_number']} - {len(sheet['parts'])} деталей")
             
             # ФИКСИРОВАННЫЙ БЛОК для визуализации листа
             viz_y_start = sheet_header_y_end - 20*mm
@@ -780,14 +1010,19 @@ def generate_pdf():
             c.showPage()
             
             # ФИКСИРОВАННЫЙ БЛОК ЗАГОЛОВКА для списка деталей
-            list_header_y_start = page_height - 30*mm
+            list_header_y_start = page_height - 25*mm
             list_header_y_end = page_height - 10*mm
             
+            # Заголовок списка с цветной полосой
+            c.setFillColor(colors.HexColor('#6B73FF'))
+            c.rect(20*mm, list_header_y_start - 8*mm, page_width - 40*mm, 10*mm, fill=1, stroke=0)
+            
             try:
-                c.setFont("RussianFont-Bold", 16)
+                c.setFont("RussianFont-Bold", 14)
             except:
-                c.setFont("Helvetica-Bold", 16)
-            c.drawCentredString(page_width/2, list_header_y_start, f"СПИСОК ДЕТАЛЕЙ ЛИСТА №{sheet['sheet_number']}")
+                c.setFont("Helvetica-Bold", 14)
+            c.setFillColor(colors.white)
+            c.drawCentredString(page_width/2, list_header_y_start - 3*mm, f"📋 СПИСОК ДЕТАЛЕЙ ЛИСТА №{sheet['sheet_number']}")
             
             # Создаем таблицу деталей для этого листа
             sheet_parts_data = [
@@ -905,6 +1140,19 @@ def check_weasyprint():
     """Проверка доступности WeasyPrint"""
     return jsonify({'available': WEASYPRINT_AVAILABLE})
 
+@app.route('/clear_project', methods=['POST'])
+def clear_project():
+    """Очистка проекта"""
+    global files_data, optimization_result, project_name, material_type, material_thickness
+    
+    files_data = []
+    optimization_result = None
+    project_name = ""
+    material_type = "galvanized"
+    material_thickness = 1.0
+    
+    return jsonify({'success': True, 'message': 'Проект очищен'})
+
 @app.route('/add_files', methods=['POST'])
 def add_files():
     """Добавление новых файлов к существующему проекту"""
@@ -941,11 +1189,39 @@ def add_files():
                             folder_name = file.name.split('\\')[0] + "_"
                         
                         # Парсим DXF используя существующую функцию
+                        print(f"DEBUG: Вызываем parse_dxf_file для {file.filename}")
                         file_data = parse_dxf_file(temp_path, folder_name)
+                        print(f"DEBUG: Результат parse_dxf_file: {file_data is not None}")
                         if file_data:
-                            files_data.append(file_data)
-                            new_files_count += 1
-                            print(f"DEBUG: Файл {file.filename} добавлен. Всего файлов: {new_files_count}")
+                            # Ищем деталь с таким же именем и габаритами
+                            found_duplicate = False
+                            original_name = file_data['original_name']
+                            
+                            for existing_file in files_data:
+                                # Проверяем совпадение по оригинальному имени и габаритам
+                                if (existing_file['original_name'] == original_name and
+                                    existing_file['real_width'] == file_data['real_width'] and
+                                    existing_file['real_height'] == file_data['real_height']):
+                                    # Деталь с такими же габаритами уже есть - увеличиваем количество
+                                    existing_file['quantity'] += file_data['quantity']
+                                    found_duplicate = True
+                                    print(f"DEBUG: Деталь '{original_name}' ({file_data['real_width']}x{file_data['real_height']}) уже есть, увеличено количество до {existing_file['quantity']}", flush=True)
+                                    break
+                            
+                            if not found_duplicate:
+                                # Деталь новая или с другими габаритами - добавляем
+                                # Проверяем, есть ли детали с таким же именем, но другими размерами
+                                same_name_count = sum(1 for f in files_data if f['original_name'] == original_name)
+                                if same_name_count > 0:
+                                    # Добавляем размеры к имени для различия
+                                    file_data['name'] = f"{file_data['name']} [{file_data['real_width']:.0f}x{file_data['real_height']:.0f}]"
+                                    print(f"DEBUG: Деталь с именем '{original_name}' есть, но с другими размерами. Добавлена как '{file_data['name']}'", flush=True)
+                                
+                                files_data.append(file_data)
+                                new_files_count += 1
+                                print(f"DEBUG: Новая деталь '{file_data['name']}' добавлена (кол-во: {file_data['quantity']})", flush=True)
+                            
+                            print(f"DEBUG: file_data: name={file_data.get('name')}, area={file_data.get('area_m2')}")
                         else:
                             print(f"DEBUG: Не удалось обработать файл {file.filename}")
                         

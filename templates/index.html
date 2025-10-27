@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>Оптимизация раскроя деталей v2.1</title>
+    <title>Оптимизация раскроя деталей v3.2</title>
     <style>
         * {
             margin: 0;
@@ -414,8 +414,9 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔧 Оптимизация раскроя деталей</h1>
+            <h1>🔧 Оптимизация раскроя деталей v3.3</h1>
             <p>Веб-приложение для оптимизации размещения деталей на листах металла</p>
+            <p style="font-size: 0.9em; margin-top: 10px; opacity: 0.9;">✨ Упрощённый интерфейс: Просто перетащите файлы или кликните в зону загрузки!</p>
         </div>
 
         <div class="content">
@@ -452,26 +453,12 @@
                     </div>
                 </div>
 
-                <button class="btn" onclick="uploadFiles()">📤 Загрузить файлы</button>
-                
-                <div class="form-group">
-                    <label class="file-upload-label" for="additional_files">
-                        <span class="upload-icon">📁</span>
-                        <span class="upload-text">Добавить файлы DXF</span>
-                        <input type="file" id="additional_files" multiple accept=".dxf" style="display: none;">
-                    </label>
+                <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" onclick="clearProject()" style="background: #dc3545;">🗑️ Очистить проект</button>
+                    <span id="files_counter" style="color: #667eea; font-weight: 600; font-size: 1.1em;"></span>
                 </div>
                 
-                <div class="form-group">
-                    <label class="file-upload-label" for="additional_folder">
-                        <span class="upload-icon">📂</span>
-                        <span class="upload-text">Добавить папку с DXF</span>
-                        <input type="file" id="additional_folder" multiple accept=".dxf" webkitdirectory style="display: none;">
-                    </label>
-                </div>
-                
-                <button class="btn btn-secondary" onclick="addFiles()">➕ Добавить файлы</button>
-                <button class="btn btn-success" onclick="startOptimization()">🚀 Начать оптимизацию</button>
+                <button class="btn btn-success" onclick="startOptimization()" style="margin-top: 20px;">🚀 Начать оптимизацию</button>
                 
                 <div id="upload_status"></div>
             </div>
@@ -512,8 +499,8 @@
     </div>
 
     <script>
-        // Версия 2.1 - исправлена проблема с дублированием таблиц
-        console.log('Загружена версия 2.1');
+        // Версия 3.1 - Карточный интерфейс с модальными окнами
+        console.log('Загружена версия 3.1 - Карточный интерфейс');
         let uploadedFiles = [];
         let optimizationResult = null;
 
@@ -522,50 +509,160 @@
             element.innerHTML = `<div class="status ${type}">${message}</div>`;
         }
 
-        function uploadFiles() {
-            const fileInput = document.getElementById('file_input');
-            const projectName = document.getElementById('project_name').value;
-            const materialType = document.getElementById('material_type').value;
-            const materialThickness = document.getElementById('material_thickness').value;
-            const files = fileInput.files;
-
+        // Обработчик клика по зоне загрузки (label автоматически открывает file input)
+        // Когда пользователь выбирает файлы, сразу обрабатываем их с диалогом
+        const fileInput = document.getElementById('file_input');
+        
+        fileInput.addEventListener('change', (e) => {
+            const files = e.target.files;
+            
             if (files.length === 0) {
-                showStatus('upload_status', 'Пожалуйста, выберите DXF файлы', 'error');
+                console.log('🔴 [FileInput] Нет файлов для загрузки');
+                return;
+            }
+            
+            console.log('🟢 [FileInput] Файлы выбраны через клик:', files.length);
+            for (let i = 0; i < files.length; i++) {
+                console.log(`   📄 Файл ${i + 1}: ${files[i].name} (${(files[i].size / 1024).toFixed(2)} KB)`);
+            }
+            
+            // Если уже есть загруженные файлы, спрашиваем что делать
+            if (uploadedFiles.length > 0) {
+                console.log('🟡 [FileInput] Файлы уже загружены, показываем диалог');
+                const choice = confirm(
+                    `У вас уже загружено ${uploadedFiles.length} файлов.\n\n` +
+                    `Нажмите "ОК" чтобы ДОБАВИТЬ новые файлы к текущему проекту.\n` +
+                    `Нажмите "Отмена" чтобы СОЗДАТЬ НОВЫЙ проект (текущий будет очищен).`
+                );
+                
+                if (choice) {
+                    console.log('🟢 [FileInput] Пользователь выбрал: ДОБАВИТЬ');
+                    uploadFilesWithOption(files, false);
+                } else {
+                    console.log('🟢 [FileInput] Пользователь выбрал: СОЗДАТЬ НОВЫЙ');
+                    uploadFilesWithOption(files, true);
+                }
+            } else {
+                console.log('🟢 [FileInput] Первая загрузка - создаем новый проект');
+                uploadFilesWithOption(files, true);
+            }
+            
+            // Очищаем input для возможности повторной загрузки тех же файлов
+            e.target.value = '';
+        });
+        
+        // Загрузка файлов с опцией очистки
+        function uploadFilesWithOption(files, clearProject) {
+            console.log('🔵 [uploadFilesWithOption] Начинаем загрузку');
+            console.log('🔵 [uploadFilesWithOption] Количество файлов:', files.length);
+            console.log('🔵 [uploadFilesWithOption] clearProject =', clearProject);
+            
+            if (files.length === 0) {
+                console.log('🔴 [uploadFilesWithOption] ОШИБКА: Нет файлов для загрузки');
+                showStatus('upload_status', '⚠️ Файлы не выбраны', 'warning');
                 return;
             }
 
             const formData = new FormData();
-            formData.append('project_name', projectName);
-            formData.append('material_type', materialType);
-            formData.append('material_thickness', materialThickness);
+            formData.append('clear_project', clearProject ? 'true' : 'false');
+            console.log('🔵 [uploadFilesWithOption] Добавили clear_project =', clearProject ? 'true' : 'false');
+            
+            // Параметры проекта (только если создаем новый)
+            if (clearProject) {
+                const projectName = document.getElementById('project_name').value;
+                const materialType = document.getElementById('material_type').value;
+                const materialThickness = document.getElementById('material_thickness').value;
+                formData.append('project_name', projectName);
+                formData.append('material_type', materialType);
+                formData.append('material_thickness', materialThickness);
+                console.log('🔵 [uploadFilesWithOption] Параметры проекта:', { projectName, materialType, materialThickness });
+            }
             
             for (let file of files) {
                 formData.append('files', file);
+                console.log('🔵 [uploadFilesWithOption] Добавили файл в FormData:', file.name);
             }
 
-            showStatus('upload_status', 'Загружаем файлы...', 'info');
+            showStatus('upload_status', clearProject ? '🔄 Создаем новый проект...' : '➕ Добавляем файлы...', 'info');
+            console.log('🟡 [uploadFilesWithOption] Отправляем POST запрос на /upload');
 
             fetch('/upload', {
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
+            .then(response => {
+                console.log('🟢 [uploadFilesWithOption] Получен ответ от сервера, статус:', response.status);
+                return response.json();
+            })
             .then(data => {
+                console.log('🟢 [uploadFilesWithOption] Данные от сервера:', data);
+                console.log('🟢 [uploadFilesWithOption] data.cleared =', data.cleared);
+                console.log('🟢 [uploadFilesWithOption] data.count =', data.count);
+                console.log('🟢 [uploadFilesWithOption] data.total_files =', data.total_files);
+                console.log('🟢 [uploadFilesWithOption] data.files.length =', data.files.length);
+                
                 if (data.success) {
+                    console.log('🔵 [uploadFilesWithOption] ПЕРЕД обновлением uploadedFiles.length =', uploadedFiles.length);
                     uploadedFiles = data.files;
-                    showStatus('upload_status', `✅ Загружено ${data.count} файлов`, 'success');
+                    console.log('✅ [uploadFilesWithOption] ПОСЛЕ обновления uploadedFiles.length =', uploadedFiles.length);
+                    console.log('✅ [uploadFilesWithOption] uploadedFiles:', uploadedFiles);
+                    
+                    const message = data.cleared 
+                        ? `✅ Новый проект создан! Загружено ${data.total_files} файлов`
+                        : `✅ Добавлено ${data.count} файлов. Всего: ${data.total_files}`;
+                    showStatus('upload_status', message, 'success');
+                    updateFilesCounter();
                     showStats();
-                    // Сразу показываем управление файлами и редактирование
                     showFileManagement();
-                    // НЕ показываем секцию оптимизации сразу
-                    // document.getElementById('optimize_section').style.display = 'block';
                 } else {
+                    console.log('🔴 [uploadFilesWithOption] ОШИБКА от сервера:', data.error);
                     showStatus('upload_status', `❌ Ошибка: ${data.error}`, 'error');
                 }
             })
             .catch(error => {
+                console.log('🔴 [uploadFilesWithOption] ОШИБКА fetch:', error);
                 showStatus('upload_status', `❌ Ошибка загрузки: ${error}`, 'error');
             });
+        }
+        
+        // Обновление счетчика файлов
+        function updateFilesCounter() {
+            const counter = document.getElementById('files_counter');
+            if (uploadedFiles.length > 0) {
+                counter.textContent = `📊 Загружено файлов: ${uploadedFiles.length}`;
+            } else {
+                counter.textContent = '';
+            }
+        }
+        
+        // Очистка проекта
+        function clearProject() {
+            if (uploadedFiles.length === 0) {
+                showStatus('upload_status', 'ℹ️ Проект уже пуст', 'info');
+                return;
+            }
+            
+            if (confirm(`Вы уверены, что хотите очистить проект?\nБудет удалено ${uploadedFiles.length} файлов.`)) {
+                fetch('/clear_project', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        uploadedFiles = [];
+                        optimizationResult = null;
+                        updateFilesCounter();
+                        document.getElementById('stats_section').style.display = 'none';
+                        document.getElementById('file_management_section').style.display = 'none';
+                        document.getElementById('optimize_section').style.display = 'none';
+                        document.getElementById('results_section').style.display = 'none';
+                        showStatus('upload_status', '✅ Проект очищен', 'success');
+                    }
+                })
+                .catch(error => {
+                    showStatus('upload_status', `❌ Ошибка: ${error}`, 'error');
+                });
+            }
         }
 
         function showStats() {
@@ -945,21 +1042,50 @@
         
         fileUpload.addEventListener('dragover', (e) => {
             e.preventDefault();
+            console.log('🔵 [Drag&Drop] dragover - файлы над зоной перетаскивания');
             fileUpload.style.background = '#e8f0ff';
         });
         
         fileUpload.addEventListener('dragleave', (e) => {
             e.preventDefault();
+            console.log('🔵 [Drag&Drop] dragleave - файлы покинули зону');
             fileUpload.style.background = '#f8f9ff';
         });
         
         fileUpload.addEventListener('drop', (e) => {
             e.preventDefault();
             fileUpload.style.background = '#f8f9ff';
+            console.log('🟢 [Drag&Drop] DROP! Файлы сброшены в зону');
             
             const files = e.dataTransfer.files;
-            const fileInput = document.getElementById('file_input');
-            fileInput.files = files;
+            console.log('🟢 [Drag&Drop] Количество файлов:', files.length);
+            for (let i = 0; i < files.length; i++) {
+                console.log(`   📄 Файл ${i + 1}: ${files[i].name} (${(files[i].size / 1024).toFixed(2)} KB)`);
+            }
+            
+            // Определяем, нужно ли очистить проект
+            const clearProject = uploadedFiles.length === 0;
+            console.log('🟢 [Drag&Drop] clearProject =', clearProject, '(текущих файлов:', uploadedFiles.length, ')');
+            
+            if (uploadedFiles.length > 0) {
+                console.log('🟡 [Drag&Drop] Файлы уже загружены, показываем диалог');
+                const choice = confirm(
+                    `У вас уже загружено ${uploadedFiles.length} файлов.\n\n` +
+                    `Нажмите "ОК" чтобы ДОБАВИТЬ новые файлы к текущему проекту.\n` +
+                    `Нажмите "Отмена" чтобы СОЗДАТЬ НОВЫЙ проект (текущий будет очищен).`
+                );
+                
+                if (choice) {
+                    console.log('🟢 [Drag&Drop] Пользователь выбрал: ДОБАВИТЬ');
+                    uploadFilesWithOption(files, false);
+                } else {
+                    console.log('🟢 [Drag&Drop] Пользователь выбрал: СОЗДАТЬ НОВЫЙ');
+                    uploadFilesWithOption(files, true);
+                }
+            } else {
+                console.log('🟢 [Drag&Drop] Первая загрузка - загружаем файлы');
+                uploadFilesWithOption(files, true);
+            }
         });
     </script>
 </body>

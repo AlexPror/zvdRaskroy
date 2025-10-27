@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Отчет по раскрою - {{ project_name }}</title>
+    <title>Отчет по раскрою v3.1 - {{ project_name }}</title>
     <style>
         * {
             margin: 0;
@@ -99,17 +99,20 @@
         th {
             background: linear-gradient(135deg, #4A90E2 0%, #357ABD 100%);
             color: white;
-            padding: 15px 10px;
+            padding: 8px 10px;
             text-align: center;
             font-weight: 600;
-            font-size: 13px;
+            font-size: 0.9em;
+            line-height: 1.3;
         }
 
         td {
-            padding: 12px 10px;
+            padding: 6px 10px;
             border-bottom: 1px solid #e1e8ed;
             text-align: center;
             vertical-align: middle;
+            line-height: 1.2;
+            font-size: 0.9em;
         }
 
         tr:nth-child(even) {
@@ -220,6 +223,392 @@
             margin-bottom: 15px;
             text-align: center;
         }
+
+        /* Карточный интерфейс v3.1 */
+        .sheets-cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 25px;
+            margin: 30px 0;
+        }
+
+        .sheet-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            overflow: hidden;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 2px solid #e1e8ed;
+        }
+
+        .sheet-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(74, 144, 226, 0.3);
+            border-color: #4A90E2;
+        }
+
+        .sheet-card-header {
+            background: linear-gradient(135deg, #4A90E2 0%, #357ABD 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .sheet-card-header h3 {
+            font-size: 20px;
+            margin-bottom: 5px;
+        }
+
+        .sheet-card-body {
+            padding: 20px;
+        }
+
+        .sheet-card-info {
+            margin-bottom: 15px;
+        }
+
+        .sheet-card-info p {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
+        }
+
+        .sheet-card-info p:last-child {
+            border-bottom: none;
+        }
+
+        .sheet-card-info strong {
+            color: #4A90E2;
+        }
+
+        .sheet-preview {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+            position: relative;
+            height: 150px;
+            overflow: hidden;
+        }
+
+        .sheet-preview-canvas {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .card-button {
+            background: linear-gradient(135deg, #4A90E2 0%, #357ABD 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .card-button:hover {
+            background: linear-gradient(135deg, #357ABD 0%, #2868a8 100%);
+            transform: translateY(-2px);
+        }
+
+        /* Модальное окно */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 1% auto;
+            padding: 0;
+            border-radius: 15px;
+            width: 95%;
+            max-width: 1600px;
+            max-height: 95vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 50px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #4A90E2 0%, #357ABD 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px 15px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 24px;
+        }
+
+        .close {
+            color: white;
+            font-size: 35px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            line-height: 1;
+        }
+
+        .close:hover {
+            transform: scale(1.2);
+            color: #ffcccc;
+        }
+
+        .modal-body {
+            padding: 30px;
+            display: flex;
+            gap: 30px;
+        }
+
+        .modal-left {
+            flex: 2;
+        }
+
+        .modal-right {
+            flex: 1;
+            min-width: 450px;
+            max-width: 500px;
+        }
+
+        .modal-visualization {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .modal-visualization h3 {
+            color: #4A90E2;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .modal-sheet-container {
+            background: white;
+            border: 2px solid #333;
+            position: relative;
+            margin: 0 auto;
+        }
+
+        .modal-table {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .modal-table h3 {
+            background: linear-gradient(135deg, #4A90E2 0%, #357ABD 100%);
+            color: white;
+            padding: 15px;
+            margin: 0;
+            font-size: 18px;
+        }
+
+        .modal-table table {
+            width: 100%;
+            font-size: 13px;
+        }
+
+        .modal-table th {
+            padding: 6px 8px;
+            font-size: 11px;
+            line-height: 1.2;
+        }
+
+        .modal-table td {
+            padding: 5px 8px;
+            font-size: 11px;
+            line-height: 1.2;
+        }
+
+        .modal-table .part-name {
+            text-align: left;
+            max-width: 150px;
+            font-size: 11px;
+        }
+
+        @media (max-width: 968px) {
+            .modal-body {
+                flex-direction: column;
+            }
+            
+            .modal-right {
+                min-width: 100%;
+            }
+            
+            .sheets-cards-grid {
+                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                gap: 15px;
+            }
+        }
+
+        @media print {
+            /* Скрываем модальные окна при печати */
+            .modal {
+                display: none !important;
+            }
+            
+            /* Скрываем кнопки на карточках */
+            .card-button {
+                display: none !important;
+            }
+            
+            /* Скрываем кнопку печати */
+            button[onclick="window.print()"] {
+                display: none !important;
+            }
+            
+            /* Скрываем подсказку о карточках */
+            .section p {
+                display: none !important;
+            }
+            
+            /* Скрываем сами карточки */
+            .sheets-cards-grid {
+                display: none !important;
+            }
+            
+            /* Скрываем заголовок секции с карточками */
+            .section h2 {
+                display: none !important;
+            }
+            
+            /* Показываем развернутые листы для печати */
+            .print-sheets-section {
+                display: block !important;
+            }
+            
+            /* Каждый лист на отдельной странице */
+            .print-sheet {
+                page-break-before: always;
+                page-break-after: always;
+                page-break-inside: avoid;
+            }
+            
+            .print-sheet:first-child {
+                page-break-before: auto;
+            }
+            
+            /* Заголовок листа */
+            .print-sheet-header {
+                background: linear-gradient(135deg, #4A90E2 0%, #357ABD 100%);
+                color: white;
+                padding: 20px;
+                margin-bottom: 20px;
+                text-align: center;
+                border-radius: 8px;
+            }
+            
+            .print-sheet-header h2 {
+                margin: 0;
+                font-size: 24px;
+            }
+            
+            /* Информация о листе */
+            .print-sheet-info {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 15px;
+                margin-bottom: 20px;
+                padding: 15px;
+                background: #f8f9fa;
+                border-radius: 8px;
+            }
+            
+            .print-sheet-info-item {
+                text-align: center;
+            }
+            
+            .print-sheet-info-item strong {
+                display: block;
+                font-size: 18px;
+                color: #4A90E2;
+                margin-bottom: 5px;
+            }
+            
+            /* Визуализация раскладки */
+            .print-visualization {
+                text-align: center;
+                margin: 30px 0;
+                page-break-inside: avoid;
+            }
+            
+            .print-visualization h3 {
+                color: #4A90E2;
+                margin-bottom: 15px;
+                font-size: 18px;
+            }
+            
+            /* Таблица деталей для печати */
+            .print-parts-table {
+                margin-top: 30px;
+                page-break-inside: avoid;
+            }
+            
+            .print-parts-table h3 {
+                color: #4A90E2;
+                margin-bottom: 15px;
+                font-size: 18px;
+            }
+            
+            .print-parts-table table {
+                font-size: 11px;
+            }
+            
+            .print-parts-table th {
+                padding: 10px 8px;
+                font-size: 11px;
+            }
+            
+            .print-parts-table td {
+                padding: 8px;
+                font-size: 10px;
+            }
+            
+            /* Убираем тени и эффекты при печати */
+            * {
+                box-shadow: none !important;
+                text-shadow: none !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -236,36 +625,54 @@
 
         <!-- Статистика -->
         <div class="section">
-            <h2>СТАТИСТИКА И РЕКОМЕНДАЦИИ</h2>
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <h3>{{ sheets_needed }}</h3>
-                    <p>Листов требуется</p>
-                </div>
-                <div class="stat-card">
-                    <h3>{{ utilization_percent }}%</h3>
-                    <p>Использование материала</p>
-                </div>
-                <div class="stat-card">
-                    <h3>{{ total_parts }}</h3>
-                    <p>Всего деталей</p>
-                </div>
-                <div class="stat-card">
-                    <h3>{{ "%.5f"|format(total_area_m2|float) }} м²</h3>
-                    <p>Площадь деталей</p>
-                </div>
-                <div class="stat-card">
-                    <h3>{{ total_cut_length }} м</h3>
-                    <p>Длина реза</p>
-                </div>
-                <div class="stat-card">
-                    <h3>{{ cutting_time }} мин</h3>
-                    <p>Время резки</p>
-                </div>
-                <div class="stat-card">
-                    <h3>{{ cut_gap * 2 }} мм</h3>
-                    <p>Зазор между деталями</p>
-                </div>
+            <h2>📊 СТАТИСТИКА И РЕКОМЕНДАЦИИ</h2>
+            <div class="table-container">
+                <table style="max-width: 900px;">
+                    <thead>
+                        <tr>
+                            <th>Параметр</th>
+                            <th>Значение</th>
+                            <th>Рекомендация</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>📋 Листов требуется</strong></td>
+                            <td><strong style="color: #4A90E2; font-size: 16px;">{{ sheets_needed }} шт</strong></td>
+                            <td style="font-size: 12px; color: #666;">{% if sheets_needed|int <= 2 %}✅ Малый заказ{% elif sheets_needed|int <= 5 %}⚠️ Средний заказ{% else %}🔴 Крупный заказ{% endif %}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>📈 Использование материала</strong></td>
+                            <td><strong style="color: {% if utilization_percent|float >= 80 %}#27ae60{% elif utilization_percent|float >= 60 %}#f39c12{% else %}#e74c3c{% endif %}; font-size: 16px;">{{ utilization_percent }}%</strong></td>
+                            <td style="font-size: 12px; color: #666;">{% if utilization_percent|float >= 80 %}✅ Отлично{% elif utilization_percent|float >= 60 %}⚠️ Хорошо{% else %}🔴 Низкая эффективность{% endif %}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>🔢 Всего деталей</strong></td>
+                            <td><strong style="font-size: 16px;">{{ total_parts }} шт</strong></td>
+                            <td style="font-size: 12px; color: #666;">На {{ sheets_needed }} {{ 'листе' if sheets_needed|int == 1 else 'листах' }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>📐 Площадь деталей</strong></td>
+                            <td><strong style="font-size: 16px;">{{ "%.4f"|format(total_area_m2|float) }} м²</strong></td>
+                            <td style="font-size: 12px; color: #666;">{{ "%.2f"|format((sheets_needed|int * 3.125)|float) }} м² материала</td>
+                        </tr>
+                        <tr>
+                            <td><strong>✂️ Длина реза</strong></td>
+                            <td><strong style="font-size: 16px;">{{ total_cut_length }} м</strong></td>
+                            <td style="font-size: 12px; color: #666;">{% if total_cut_length|float < 50 %}✅ Быстрая резка{% elif total_cut_length|float < 150 %}⚠️ Средняя резка{% else %}🔴 Долгая резка{% endif %}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>⏱️ Время резки</strong></td>
+                            <td><strong style="font-size: 16px;">{{ cutting_time }} мин</strong></td>
+                            <td style="font-size: 12px; color: #666;">≈ {{ "%.1f"|format((cutting_time|float / 60)) }} ч</td>
+                        </tr>
+                        <tr>
+                            <td><strong>↔️ Зазор между деталями</strong></td>
+                            <td><strong style="font-size: 16px;">{{ cut_gap * 2 }} мм</strong></td>
+                            <td style="font-size: 12px; color: #666;">Для {{ material_type }} {{ material_thickness }} мм</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -319,106 +726,204 @@
             </div>
         </div>
 
-        <!-- Итоговая таблица с объединенными деталями -->
+        <!-- Визуализация раскроя - Карточный интерфейс v3.1 -->
         <div class="section">
-            <h2>ИТОГОВАЯ СВОДКА ПО ДЕТАЛЯМ</h2>
-            <div class="summary-table">
-                <h3>Объединенные детали проекта</h3>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>№</th>
-                                <th>Название детали</th>
-                                <th>Размер (мм)</th>
-                                <th>Площадь 1 шт (м²)</th>
-                                <th>Общее количество</th>
-                                <th>Общая площадь (м²)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for part_name, part_data in merged_parts.items() %}
-                            <tr>
-                                <td>{{ loop.index }}</td>
-                                <td class="part-name">{{ part_name }}</td>
-                               <td>{{ "%.0f"|format(part_data.width) }}×{{ "%.0f"|format(part_data.height) }}</td>
-                               <td>{{ "%.4f"|format(part_data.area_m2) }}</td>
-                                <td><strong>{{ part_data.total_quantity }}</strong></td>
-                                <td><strong>{{ "%.5f"|format(part_data.total_area|float) }}</strong></td>
-                            </tr>
-                            {% endfor %}
-                            <tr class="total-row">
-                                <td></td>
-                                <td><strong>ИТОГО:</strong></td>
-                                <td></td>
-                                <td></td>
-                                <td><strong>{{ total_quantity_merged }}</strong></td>
-                                <td><strong>{{ "%.5f"|format(total_area_merged|float) }}</strong></td>
-                            </tr>
-                        </tbody>
-                    </table>
+            <h2>📋 ВИЗУАЛИЗАЦИЯ РАСКРОЯ - Карточный интерфейс</h2>
+            <p style="text-align: center; color: #666; margin-bottom: 10px;">
+                💡 Нажмите на карточку листа для детального просмотра
+            </p>
+            <div style="text-align: center; margin-bottom: 20px;">
+                <button onclick="window.print()" style="
+                    background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+                    color: white;
+                    border: none;
+                    padding: 12px 30px;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);
+                " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(39, 174, 96, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(39, 174, 96, 0.3)'">
+                    🖨️ Печать отчета (каждый лист на отдельной странице)
+                </button>
+            </div>
+            
+            <div class="sheets-cards-grid">
+                {% for sheet in sheets %}
+                <div class="sheet-card" onclick="openSheetModal({{ sheet.sheet_number }})">
+                    <div class="sheet-card-header">
+                        <h3>📄 ЛИСТ №{{ sheet.sheet_number }}</h3>
+                    </div>
+                    <div class="sheet-card-body">
+                        <div class="sheet-card-info">
+                            <p>
+                                <span>🔢 Деталей:</span>
+                                <strong>{{ sheet.parts|length }} шт</strong>
+                            </p>
+                            <p>
+                                <span>📊 Использование:</span>
+                                {% set utilization = (sheet.total_area / 3.125) * 100 %}
+                                <strong>{{ "%.1f"|format(utilization if utilization <= 100 else 100.0) }}%</strong>
+                            </p>
+                            <p>
+                                <span>📐 Площадь деталей:</span>
+                                <strong>{{ "%.4f"|format(sheet.total_area|float) }} м²</strong>
+                            </p>
+                        </div>
+                        
+                        <div class="sheet-preview">
+                            <div class="sheet-preview-canvas" style="position: relative;">
+                                {% set scale = 0.12 %}
+                                <div style="position: absolute; width: {{ "%.0f"|format(sheet.width * scale) }}px; height: {{ "%.0f"|format(sheet.height * scale) }}px; border: 1px solid #333; left: 50%; top: 50%; transform: translate(-50%, -50%); background: white;">
+                                    {% for part in sheet.parts %}
+                                    <div style="position: absolute; left: {{ "%.0f"|format(part.x * scale) }}px; top: {{ "%.0f"|format(part.y * scale) }}px; width: {{ "%.0f"|format(part.width * scale) }}px; height: {{ "%.0f"|format(part.height * scale) }}px; background-color: {{ part.color }}; border: 0.5px solid #000; opacity: 0.8;"></div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button class="card-button" onclick="event.stopPropagation(); openSheetModal({{ sheet.sheet_number }})">
+                            🔍 Подробнее
+                        </button>
+                    </div>
                 </div>
+                
+                <!-- Модальное окно для листа -->
+                <div id="modal-sheet-{{ sheet.sheet_number }}" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2>📄 ЛИСТ №{{ sheet.sheet_number }} - Детальная информация</h2>
+                            <span class="close" onclick="closeSheetModal({{ sheet.sheet_number }})">&times;</span>
+                        </div>
+                        <div class="modal-body">
+                            <div class="modal-left">
+                                <div class="modal-visualization">
+                                    <h3>📐 Раскладка деталей</h3>
+                                    <div class="modal-sheet-container" style="width: {{ "%.0f"|format(sheet.width * 0.35) }}px; height: {{ "%.0f"|format(sheet.height * 0.35) }}px;">
+                                        {% for part in sheet.parts %}
+                                        <div class="part" style="
+                                            left: {{ "%.0f"|format(part.x * 0.35) }}px; 
+                                            top: {{ "%.0f"|format(part.y * 0.35) }}px; 
+                                            width: {{ "%.0f"|format(part.width * 0.35) }}px; 
+                                            height: {{ "%.0f"|format(part.height * 0.35) }}px;
+                                            background-color: {{ part.color }};
+                                        ">
+                                            <div class="part-number">{{ loop.index }}</div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-right">
+                                <div class="modal-table">
+                                    <h3>📋 Список деталей</h3>
+                                    <div style="max-height: 650px; overflow-y: auto;">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>№</th>
+                                                    <th>Название</th>
+                                                    <th>Размер</th>
+                                                    <th>Поз.</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for part in sheet.parts %}
+                                                <tr>
+                                                    <td>{{ loop.index }}</td>
+                                                    <td class="part-name">{{ part.name[:20] }}{% if part.name|length > 20 %}...{% endif %}</td>
+                                                    <td>{{ "%.1f"|format(part.real_width) }}×{{ "%.1f"|format(part.real_height) }}</td>
+                                                    <td style="font-size: 10px;">({{ "%.0f"|format(part.x) }},{{ "%.0f"|format(part.y) }})</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
             </div>
         </div>
 
-        <!-- Визуализация раскроя -->
-        <div class="section">
-            <h2>ВИЗУАЛИЗАЦИЯ РАСКРОЯ</h2>
+        <!-- Развернутые листы для печати (скрыты на экране, видны при печати) -->
+        <div class="print-sheets-section" style="display: none;">
             {% for sheet in sheets %}
-            <div class="visualization">
-                <h3>ЛИСТ №{{ sheet.sheet_number }} - {{ sheet.parts|length }} деталей</h3>
-                <div class="sheet-container" style="width: {{ "%.0f"|format(sheet.width * 0.3) }}px; height: {{ "%.0f"|format(sheet.height * 0.3) }}px;">
-                    <div class="sheet-label">Лист {{ sheet.sheet_number }}</div>
-                    {% for part in sheet.parts %}
-                    <div class="part" style="
-                        left: {{ "%.0f"|format(part.x * 0.3) }}px; 
-                        top: {{ "%.0f"|format(part.y * 0.3) }}px; 
-                        width: {{ "%.0f"|format(part.width * 0.3) }}px; 
-                        height: {{ "%.0f"|format(part.height * 0.3) }}px;
-                        background-color: {{ part.color }};
-                    ">
-                        <div class="part-number">{{ loop.index }}</div>
-                    </div>
-                    {% endfor %}
+            <div class="print-sheet">
+                <div class="print-sheet-header">
+                    <h2>📄 ЛИСТ №{{ sheet.sheet_number }}</h2>
                 </div>
-            </div>
-            
-            <!-- Список деталей для листа -->
-            <div class="section page-break">
-                <h2>СПИСОК ДЕТАЛЕЙ ЛИСТА №{{ sheet.sheet_number }}</h2>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>№</th>
-                                <th>Название детали</th>
-                                <th>Габариты</th>
-                                <th>Кол-во</th>
-                                <th>Площадь 1 шт</th>
-                                <th>Общая площадь</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for part_name, part_data in sheet.parts_by_name.items() %}
-                            <tr>
-                                <td>{{ loop.index }}</td>
-                                <td class="part-name">{{ part_name }}</td>
-                                <td>{{ part_data.width }}×{{ part_data.height }}</td>
-                                <td>{{ part_data.count }}</td>
-                                <td>{{ part_data.area }}</td>
-                                <td>{{ part_data.area * part_data.count }}</td>
-                            </tr>
-                            {% endfor %}
-                            <tr class="total-row">
-                                <td></td>
-                                <td><strong>ИТОГО:</strong></td>
-                                <td></td>
-                                <td><strong>{{ sheet.total_parts }}</strong></td>
-                                <td></td>
-                                <td><strong>{{ "%.5f"|format(sheet.total_area|float) }}</strong></td>
-                            </tr>
-                        </tbody>
-                    </table>
+                
+                <div class="print-sheet-info">
+                    <div class="print-sheet-info-item">
+                        <strong>{{ sheet.parts|length }}</strong>
+                        <span>Деталей на листе</span>
+                    </div>
+                    <div class="print-sheet-info-item">
+                        {% set utilization = (sheet.total_area / 3.125) * 100 %}
+                        <strong>{{ "%.1f"|format(utilization if utilization <= 100 else 100.0) }}%</strong>
+                        <span>Использование листа</span>
+                    </div>
+                    <div class="print-sheet-info-item">
+                        <strong>{{ "%.4f"|format(sheet.total_area|float) }} м²</strong>
+                        <span>Площадь деталей</span>
+                    </div>
+                </div>
+                
+                <div class="print-visualization">
+                    <h3>📐 Раскладка деталей на листе</h3>
+                    <div class="sheet-container" style="width: {{ "%.0f"|format(sheet.width * 0.3) }}px; height: {{ "%.0f"|format(sheet.height * 0.3) }}px;">
+                        <div class="sheet-label">Лист {{ sheet.sheet_number }} ({{ sheet.width }}×{{ sheet.height }} мм)</div>
+                        {% for part in sheet.parts %}
+                        <div class="part" style="
+                            left: {{ "%.0f"|format(part.x * 0.3) }}px; 
+                            top: {{ "%.0f"|format(part.y * 0.3) }}px; 
+                            width: {{ "%.0f"|format(part.width * 0.3) }}px; 
+                            height: {{ "%.0f"|format(part.height * 0.3) }}px;
+                            background-color: {{ part.color }};
+                        ">
+                            <div class="part-number">{{ loop.index }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                
+                <div class="print-parts-table">
+                    <h3>📋 Список деталей листа №{{ sheet.sheet_number }}</h3>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>№</th>
+                                    <th>Название детали</th>
+                                    <th>Размер (мм)</th>
+                                    <th>Позиция (X, Y)</th>
+                                    <th>Площадь (м²)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for part in sheet.parts %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td class="part-name">{{ part.name }}</td>
+                                    <td>{{ "%.1f"|format(part.real_width) }}×{{ "%.1f"|format(part.real_height) }}</td>
+                                    <td>({{ "%.0f"|format(part.x) }}, {{ "%.0f"|format(part.y) }})</td>
+                                    <td>{{ "%.5f"|format(part.area) }}</td>
+                                </tr>
+                                {% endfor %}
+                                <tr class="total-row">
+                                    <td></td>
+                                    <td><strong>ИТОГО на листе:</strong></td>
+                                    <td></td>
+                                    <td><strong>{{ sheet.parts|length }} деталей</strong></td>
+                                    <td><strong>{{ "%.5f"|format(sheet.total_area|float) }} м²</strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             {% endfor %}
@@ -426,6 +931,44 @@
     </div>
 
     <script>
+        // Функции для работы с модальными окнами v3.1
+        function openSheetModal(sheetNumber) {
+            const modal = document.getElementById(`modal-sheet-${sheetNumber}`);
+            if (modal) {
+                modal.style.display = 'block';
+                document.body.style.overflow = 'hidden'; // Блокируем прокрутку фона
+            }
+        }
+
+        function closeSheetModal(sheetNumber) {
+            const modal = document.getElementById(`modal-sheet-${sheetNumber}`);
+            if (modal) {
+                modal.style.display = 'none';
+                document.body.style.overflow = 'auto'; // Восстанавливаем прокрутку
+            }
+        }
+
+        // Закрытие модального окна при клике вне его
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+                document.body.style.overflow = 'auto';
+            }
+        }
+
+        // Закрытие модального окна по Escape
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                const modals = document.querySelectorAll('.modal');
+                modals.forEach(modal => {
+                    if (modal.style.display === 'block') {
+                        modal.style.display = 'none';
+                        document.body.style.overflow = 'auto';
+                    }
+                });
+            }
+        });
+
         function updateQuantity(partId, newQuantity) {
             // Обновляем общую площадь для этой детали
             const row = document.querySelector(`[data-part-id="${partId}"]`).closest('tr');
@@ -445,21 +988,29 @@
             let totalArea = 0;
             
             rows.forEach(row => {
-                const quantity = parseInt(row.querySelector('.quantity-input').value);
-                const area = parseFloat(row.querySelector('.total-area').textContent);
-                totalQuantity += quantity;
-                totalArea += area;
+                const quantityInput = row.querySelector('.quantity-input');
+                if (quantityInput) {
+                    const quantity = parseInt(quantityInput.value);
+                    const area = parseFloat(row.querySelector('.total-area').textContent);
+                    totalQuantity += quantity;
+                    totalArea += area;
+                }
             });
             
             // Обновляем итоговую строку
             const totalRow = document.querySelector('.total-row');
-            totalRow.querySelector('td:nth-child(6)').textContent = totalQuantity;
-            totalRow.querySelector('td:nth-child(7)').textContent = totalArea.toFixed(4);
+            if (totalRow) {
+                const quantityCell = totalRow.querySelector('td:nth-child(6)');
+                const areaCell = totalRow.querySelector('td:nth-child(7)');
+                if (quantityCell) quantityCell.textContent = totalQuantity;
+                if (areaCell) areaCell.textContent = totalArea.toFixed(4);
+            }
         }
 
         // Инициализация при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
             updateTotals();
+            console.log('Отчет v3.1 с карточным интерфейсом загружен');
         });
     </script>
 </body>
